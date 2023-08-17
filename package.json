@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@deepgram/sdk": "^2.4.0",
+    "natural": "^6.5.0"
+  }
+}
