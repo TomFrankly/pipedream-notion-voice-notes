@@ -96,7 +96,7 @@ const rates = {
 
 export default defineComponent({
 	props: {
-        notion: {
+		notion: {
 			type: "app",
 			app: "notion",
 			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database. It is currently configured to support **Dropbox** for audio file uploads. More cloud storage providers are coming in future releases.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n*P.S. – This free workflow took hundreds of hours to build. If you\'d like to support my work, buying one of my templates is the best way to do so!*\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n`,
@@ -172,7 +172,7 @@ export default defineComponent({
 					};
 				}
 			},
-            reloadProps: true,
+			reloadProps: true,
 		},
 	},
 	async additionalProps() {
@@ -271,27 +271,31 @@ export default defineComponent({
 					optional: true,
 				},
 			}),
-            chat_model: {
-                type: "string",
-                label: "ChatGPT Model",
-                description: `Select the model you would like to use.\n\nDefaults to **gpt-3.5-turbo**, which is recommended for this workflow.\n\nSwitching to the gpt-3.5-turbo-16k model may help you handle longer files. You can also use **gpt-4**, which may provide more insightful summaries and lists, but it will increase the cost of the summarization step by a factor of 20 (it won't increase the cost of transcription, which is typically about 90% of the cost).`,
-                default: "gpt-3.5-turbo",
-                options: results.map((model) => ({
-                    label: model.id,
-                    value: model.id,
-                })),
-                optional: true,
-								reloadProps: true
-            },
-						summary_density: {
-								type: "integer",
-								label: "Summary Density (Advanced)",
-								description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
-								min: 1000,
-								max: (this.chat_model.includes('gpt-4') || this.chat_model.includes('gpt-3.5-turbo-16k')) ? 5000 : 2750,
-								default: 2750,
-								optional: true
-						}
+			chat_model: {
+				type: "string",
+				label: "ChatGPT Model",
+				description: `Select the model you would like to use.\n\nDefaults to **gpt-3.5-turbo**, which is recommended for this workflow.\n\nSwitching to the gpt-3.5-turbo-16k model may help you handle longer files. You can also use **gpt-4**, which may provide more insightful summaries and lists, but it will increase the cost of the summarization step by a factor of 20 (it won't increase the cost of transcription, which is typically about 90% of the cost).`,
+				default: "gpt-3.5-turbo",
+				options: results.map((model) => ({
+					label: model.id,
+					value: model.id,
+				})),
+				optional: true,
+				reloadProps: true,
+			},
+			summary_density: {
+				type: "integer",
+				label: "Summary Density (Advanced)",
+				description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
+				min: 1000,
+				max:
+					this.chat_model.includes("gpt-4") ||
+					this.chat_model.includes("gpt-3.5-turbo-16k")
+						? 5000
+						: 2750,
+				default: 2750,
+				optional: true,
+			},
 		};
 
 		return props;
@@ -301,7 +305,7 @@ export default defineComponent({
 			if (fileSize > 300000000) {
 				throw new Error(
 					"File is too large. Files must be mp3 or m4a files under 300mb."
-				)
+				);
 			}
 		},
 		async downloadToTmp(fileLink, filePath, fileSize) {
@@ -329,8 +333,8 @@ export default defineComponent({
 					mime: mime,
 				};
 
-                console.log("Downloaded file to tmp storage:")
-                console.log(results)
+				console.log("Downloaded file to tmp storage:");
+				console.log(results);
 				return results;
 			} catch (error) {
 				throw new Error(`Failed to download file: ${error.message}`);
@@ -354,7 +358,7 @@ export default defineComponent({
 						depth: null,
 					})
 				);
-                console.log(`Successfully got duration: ${duration} seconds`)
+				console.log(`Successfully got duration: ${duration} seconds`);
 				return duration;
 			} catch (error) {
 				// Log the error and return an error message or handle the error as required
@@ -364,19 +368,12 @@ export default defineComponent({
 				);
 			}
 		},
-		createForm({ file, outputDir }) {
-			const form = new FormData();
-			form.append("model", "whisper-1");
-			const readStream = fs.createReadStream(join(outputDir, file));
-			form.append("file", readStream);
-			return form;
-		},
-		async chunkFileAndTranscribe({ file, $ }) {
+		async chunkFileAndTranscribe({ file }) {
 			const outputDir = join("/tmp", "chunks");
 			await execAsync(`mkdir -p "${outputDir}"`);
 			await execAsync(`rm -f "${outputDir}/*"`);
 
-            console.log(`Chunking file: ${file}`)
+			console.log(`Chunking file: ${file}`);
 			await this.chunkFile({
 				file,
 				outputDir,
@@ -384,11 +381,10 @@ export default defineComponent({
 
 			const files = await fs.promises.readdir(outputDir);
 
-            console.log(`Transcribing chunks: ${files}`)
+			console.log(`Transcribing chunks: ${files}`);
 			return await this.transcribeFiles({
 				files,
 				outputDir,
-				$,
 			});
 		},
 		async chunkFile({ file, outputDir }) {
@@ -413,18 +409,20 @@ export default defineComponent({
 			const segmentTime = Math.ceil(totalSeconds / numberOfChunks);
 
 			const command = `${ffmpegPath} -i "${file}" -f segment -segment_time ${segmentTime} -c copy -loglevel verbose "${outputDir}/chunk-%03d${ext}"`;
-            console.log(`Spliting file into chunks with ffmpeg command: ${command}`)
-			const { stdout: chunkOutput, stderr: chunkError } = await execAsync(command);
+			console.log(`Spliting file into chunks with ffmpeg command: ${command}`);
+			const { stdout: chunkOutput, stderr: chunkError } = await execAsync(
+				command
+			);
 
 			if (chunkOutput) {
-				console.log(`stdout: ${chunkOutput}`)
+				console.log(`stdout: ${chunkOutput}`);
 			}
 
 			if (chunkError) {
-				console.log(`stderr: ${chunkError}`)
+				console.log(`stderr: ${chunkError}`);
 			}
 		},
-		transcribeFiles({ files, outputDir, $ }) {
+		transcribeFiles({ files, outputDir }) {
 			const limiter = new Bottleneck({
 				maxConcurrent: 15,
 				minTime: 1000 / 3,
@@ -436,45 +434,43 @@ export default defineComponent({
 						this.transcribe({
 							file,
 							outputDir,
-							$,
 						})
 					);
 				})
 			);
 		},
-		transcribe({ file, outputDir, $ }) {
-			const form = this.createForm({
-				file,
-				outputDir,
-			});
-
-            console.log(`Transcribing file: ${file}`)
+		transcribe({ file, outputDir }) {
+			const readStream = fs.createReadStream(join(outputDir, file));
+			console.log(`Transcribing file: ${file}`);
 			return this.openai.audio.transcriptions.create({
-				$,
-				form,
+				model: "whisper-1",
+				file: readStream,
 			});
 		},
 		combineWhisperChunks(chunksArray) {
-			let combinedText = ""
+			let combinedText = "";
 
 			for (let i = 0; i < chunksArray.length; i++) {
-				let currentChunk = chunksArray[i].text
-				let nextChunk = i < chunksArray.length - 1 
-				? chunksArray[i + 1].text
-				: null
+				let currentChunk = chunksArray[i].text;
+				let nextChunk =
+					i < chunksArray.length - 1 ? chunksArray[i + 1].text : null;
 
-				if (nextChunk && currentChunk.endsWith('.') && nextChunk.charAt(0).toLowerCase() === nextChunk.charAt(0)) {
-					currentChunk = currentChunk.slice(0, -1)
+				if (
+					nextChunk &&
+					currentChunk.endsWith(".") &&
+					nextChunk.charAt(0).toLowerCase() === nextChunk.charAt(0)
+				) {
+					currentChunk = currentChunk.slice(0, -1);
 				}
 
-				if(i < chunksArray.length - 1) {
-					currentChunk += ' '
+				if (i < chunksArray.length - 1) {
+					currentChunk += " ";
 				}
 
-				combinedText += currentChunk
+				combinedText += currentChunk;
 			}
 
-			return combinedText
+			return combinedText;
 		},
 		splitTranscript(encodedTranscript, maxTokens) {
 			const stringsArray = [];
@@ -505,8 +501,8 @@ export default defineComponent({
 
 				currentIndex = endIndex;
 			}
-            
-            console.log(`Split transcript into ${stringsArray.length} chunks`)
+
+			console.log(`Split transcript into ${stringsArray.length} chunks`);
 			return stringsArray;
 		},
 		async sendToChat(openai, stringsArray) {
@@ -514,9 +510,11 @@ export default defineComponent({
 				maxConcurrent: 15,
 			});
 
-            console.log(`Sending ${stringsArray.length} chunks to ChatGPT`)
+			console.log(`Sending ${stringsArray.length} chunks to ChatGPT`);
 			const results = limiter.schedule(() => {
-				const tasks = stringsArray.map((arr, index) => this.chat(openai, arr, index));
+				const tasks = stringsArray.map((arr, index) =>
+					this.chat(openai, arr, index)
+				);
 				return Promise.all(tasks);
 			});
 			return results;
@@ -524,8 +522,8 @@ export default defineComponent({
 		async chat(openai, prompt, index) {
 			return retry(
 				async (bail, attempt) => {
-                    console.log(`Attempt ${attempt}: Sending chunk ${index} to ChatGPT`)
-                    return openai.createChatCompletion({
+					console.log(`Attempt ${attempt}: Sending chunk ${index} to ChatGPT`);
+					return openai.chat.completions.create({
 						model: this.chat_model ?? "gpt-3.5-turbo",
 						messages: [
 							{
@@ -552,8 +550,8 @@ export default defineComponent({
 		},
 		formatChat(summaryArray) {
 			const resultsArray = [];
-			console.log(`Formatting the ChatGPT results...`)
-            for (let result of summaryArray) {
+			console.log(`Formatting the ChatGPT results...`);
+			for (let result of summaryArray) {
 				// ChatGPT loves to occasionally throw commas after the final element in arrays, so let's remove them
 				function removeTrailingCommas(jsonString) {
 					const regex = /,\s*(?=])/g;
@@ -562,7 +560,7 @@ export default defineComponent({
 
 				// Need some code that will ensure we only get the JSON portion of the response
 				// This should be the entire response already, but we can't always trust GPT
-				const jsonString = result.data.choices[0].message.content
+				const jsonString = result.choices[0].message.content
 					.replace(/^[^\{]*?{/, "{")
 					.replace(/\}[^}]*?$/, "}");
 
@@ -582,9 +580,7 @@ export default defineComponent({
 
 				const response = {
 					choice: jsonObj,
-					usage: !result.data.usage.total_tokens
-						? 0
-						: result.data.usage.total_tokens,
+					usage: !result.usage.total_tokens ? 0 : result.usage.total_tokens,
 				};
 
 				resultsArray.push(response);
@@ -652,7 +648,11 @@ export default defineComponent({
 			function sentenceGrouper(arr) {
 				const newArray = [];
 
-				for (let i = 0, paragraphNumber = 1; i < arr.length; i += sentencesPerParagraph, paragraphNumber++) {
+				for (
+					let i = 0, paragraphNumber = 1;
+					i < arr.length;
+					i += sentencesPerParagraph, paragraphNumber++
+				) {
 					const group = [];
 					for (let j = i; j < i + sentencesPerParagraph; j++) {
 						if (arr[j]) {
@@ -660,7 +660,7 @@ export default defineComponent({
 						}
 					}
 
-					newArray.push(paragraphNumber + ': ' + group.join(" "));
+					newArray.push(paragraphNumber + ": " + group.join(" "));
 				}
 
 				return newArray;
@@ -684,9 +684,9 @@ export default defineComponent({
 				return sentenceArray;
 			}
 
-			console.log(`Converting the transcript to paragraphs...`)
+			console.log(`Converting the transcript to paragraphs...`);
 			const paragraphs = sentenceGrouper(transcriptSentences);
-			console.log(`Converting the summary to paragraphs...`)
+			console.log(`Converting the summary to paragraphs...`);
 			const lengthCheckedParagraphs = charMaxChecker(paragraphs);
 
 			const summaryParagraphs = sentenceGrouper(summarySentences);
@@ -698,8 +698,7 @@ export default defineComponent({
 			};
 
 			return allParagraphs;
-		}
-,
+		},
 		async calculateTranscriptCost(duration, model) {
 			if (!duration || typeof duration !== "number") {
 				throw new Error(
@@ -713,8 +712,8 @@ export default defineComponent({
 				);
 			}
 
-			console.log(`Calculating the cost of the transcript...`)
-            const cost = (duration / 60) * rates[model].completion;
+			console.log(`Calculating the cost of the transcript...`);
+			const cost = (duration / 60) * rates[model].completion;
 
 			return cost;
 		},
@@ -744,7 +743,7 @@ export default defineComponent({
 				throw new Error("Non-supported model. (thrown from calculateGPTCost).");
 			}
 
-            console.log(`Calculating the cost of the summary...`)
+			console.log(`Calculating the cost of the summary...`);
 			const costs = {
 				prompt: (usage.prompt_tokens / 1000) * rates[chatModel].prompt,
 				completion:
@@ -764,9 +763,18 @@ export default defineComponent({
 			paragraphs,
 			cost
 		) {
-			const mp3Link = encodeURI(
-				"https://www.dropbox.com/home" + steps.trigger.event.path_lower
-			);
+			let mp3Link;
+			if (steps.trigger.event.webViewLink) {
+				// Google Drive web link path
+				mp3Link = steps.trigger.event.webViewLink;
+			} else if (steps.trigger.event.webUrl) {
+				// MS OneDrive web link path
+				mp3Link = steps.trigger.event.webUrl;
+			} else {
+				mp3Link = encodeURI(
+					"https://www.dropbox.com/home" + steps.trigger.event.path_lower
+				);
+			}
 
 			const today = new Date();
 			const year = today.getFullYear();
@@ -1065,8 +1073,8 @@ export default defineComponent({
 				await retry(
 					async (bail) => {
 						try {
-							console.log(`Creating Notion page...`)
-                            response = await notion.pages.create(data);
+							console.log(`Creating Notion page...`);
+							response = await notion.pages.create(data);
 						} catch (error) {
 							if (400 <= error.status && error.status <= 409) {
 								// Don't retry for errors 400-409
@@ -1098,9 +1106,9 @@ export default defineComponent({
 			return responseHolder;
 		},
 		async updateNotionPage(notion, page) {
-			console.log(`Updating the Notion page with all leftover information.`)
-            
-            const limiter = new Bottleneck({
+			console.log(`Updating the Notion page with all leftover information.`);
+
+			const limiter = new Bottleneck({
 				maxConcurrent: 1,
 				minTime: 300,
 			});
@@ -1166,8 +1174,8 @@ export default defineComponent({
 						data.children.push(paragraphBlock);
 					}
 
-					console.log(`Attempt ${attempt}: Sending transcript to Notion...`)
-                    const response = await notion.blocks.children.append(data);
+					console.log(`Attempt ${attempt}: Sending transcript to Notion...`);
+					const response = await notion.blocks.children.append(data);
 					return response;
 				},
 				{
@@ -1192,8 +1200,10 @@ export default defineComponent({
 						data.children.push(block);
 					}
 
-					console.log(`Attempt ${attempt}: Sending additional info to Notion...`)
-                    const response = await notion.blocks.children.append(data);
+					console.log(
+						`Attempt ${attempt}: Sending additional info to Notion...`
+					);
+					const response = await notion.blocks.children.append(data);
 					return response;
 				},
 				{
@@ -1208,26 +1218,29 @@ export default defineComponent({
 		},
 	},
 	async run({ steps, $ }) {
-		console.log("Checking that file is under 300mb...")
-		await checkSize(steps.trigger.event.size)
-		console.log("File is under 300mb. Continuing...")
-		
+		console.log("Checking that file is under 300mb...");
+		await checkSize(steps.trigger.event.size);
+		console.log("File is under 300mb. Continuing...");
+
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
 		const fileInfo = {};
 
 		if (steps.download_file.$return_value.name) {
 			// Google Drive method
-			fileInfo.path = `/tmp/${steps.download_file.$return_value.name}`
+			fileInfo.path = `/tmp/${steps.download_file.$return_value.name}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
 				throw new Error(
 					"Unsupported file type. Only mp3 and m4a files are supported."
 				);
 			}
-		} else if (steps.download_file.$return_value && /^\/tmp\/.+/.test(steps.download_file.$return_value)) {
+		} else if (
+			steps.download_file.$return_value &&
+			/^\/tmp\/.+/.test(steps.download_file.$return_value)
+		) {
 			// MS OneDrive method
-			fileInfo.path = steps.download_file.$return_value
+			fileInfo.path = steps.download_file.$return_value;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
 				throw new Error(
@@ -1250,39 +1263,36 @@ export default defineComponent({
 
 		fileInfo.whisper = await this.chunkFileAndTranscribe({
 			file: fileInfo.path,
-			$,
 		});
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
-				? "gpt-4-32k"
-				: this.chat_model.includes("gpt-4")
-				? "gpt-4"
-				: this.chat_model.includes("gpt-3.5-turbo-16k")
-				? "gpt-3.5-turbo-16k"
-				: "gpt-3.5-turbo";
+			? "gpt-4-32k"
+			: this.chat_model.includes("gpt-4")
+			? "gpt-4"
+			: this.chat_model.includes("gpt-3.5-turbo-16k")
+			? "gpt-3.5-turbo-16k"
+			: "gpt-3.5-turbo";
 
 		const maxTokens = this.summary_density
-                ? this.summary_density 
-                : chatModel === "gpt-4-32k"
-				? 5000
-				: chatModel === "gpt-4"
-				? 5000
-				: chatModel === "gpt-3.5-turbo-16k"
-				? 5000
-				: 2750
+			? this.summary_density
+			: chatModel === "gpt-4-32k"
+			? 5000
+			: chatModel === "gpt-4"
+			? 5000
+			: chatModel === "gpt-3.5-turbo-16k"
+			? 5000
+			: 2750;
 
-		fileInfo.full_transcript = this.combineWhisperChunks(fileInfo.whisper)
-		
+		fileInfo.full_transcript = this.combineWhisperChunks(fileInfo.whisper);
+
 		fileInfo.transcript_chunks = this.splitTranscript(
 			encode(fileInfo.full_transcript),
 			maxTokens
 		);
 
-		const openAIkey = this.openai.$auth.api_key;
-		const configuration = new Configuration({
-			apiKey: openAIkey,
+		const openai = new OpenAI({
+			apiKey: this.openai.$auth.api_key,
 		});
-		const openai = new OpenAIApi(configuration);
 
 		fileInfo.summary = await this.sendToChat(
 			openai,
@@ -1305,18 +1315,18 @@ export default defineComponent({
 
 		const summaryUsage = {
 			prompt_tokens: fileInfo.summary.reduce((total, item) => {
-				return total + item.data.usage.prompt_tokens
+				return total + item.usage.prompt_tokens;
 			}, 0),
 			completion_tokens: fileInfo.summary.reduce((total, item) => {
-				return total + item.data.usage.completion_tokens
-			}, 0)
-		}
+				return total + item.usage.completion_tokens;
+			}, 0),
+		};
 
-		console.log(`Total tokens used in the summary process: ${summaryUsage}`)
+		console.log(`Total tokens used in the summary process: ${summaryUsage}`);
 
 		fileInfo.cost.summary = await this.calculateGPTCost(
 			summaryUsage,
-			fileInfo.summary[0].data.model
+			fileInfo.summary[0].model
 		);
 
 		fileInfo.notion_response = await this.createNotionPage(
