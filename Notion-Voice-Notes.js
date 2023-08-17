@@ -1,3 +1,11 @@
+/** 
+ * To Do
+ * - Remove paragraph numbers
+ * - Ship OneDrive and GDrive versions and test
+ * - Link new workflows in pinned comment
+ * - Update blog post with new shared workflows
+ */
+
 import { Client } from "@notionhq/client";
 import Bottleneck from "bottleneck";
 import OpenAI from "openai";
@@ -11,16 +19,11 @@ import { inspect } from "util";
 import { join, extname } from "path";
 import { exec } from "child_process";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import FormData from "form-data";
 import openai from "@pipedream/openai";
 import natural from "natural";
 import retry from "async-retry";
 
-const COMMON_AUDIO_FORMATS_TEXT =
-	"Your audio file must be in one of these formats: mp3, mp4, mpeg, mpga, m4a, wav, or webm.";
-
 const execAsync = promisify(exec);
-const pipelineAsync = promisify(stream.pipeline);
 
 const systemPrompt = `You are an assistant that only speaks JSON. Do not write normal text.
 
@@ -368,7 +371,7 @@ export default defineComponent({
 				);
 			}
 		},
-		async chunkFileAndTranscribe({ file }) {
+		async chunkFileAndTranscribe({ file }, openai) {
 			const outputDir = join("/tmp", "chunks");
 			await execAsync(`mkdir -p "${outputDir}"`);
 			await execAsync(`rm -f "${outputDir}/*"`);
@@ -385,7 +388,7 @@ export default defineComponent({
 			return await this.transcribeFiles({
 				files,
 				outputDir,
-			});
+			}, openai);
 		},
 		async chunkFile({ file, outputDir }) {
 			const ffmpegPath = ffmpegInstaller.path;
@@ -422,7 +425,7 @@ export default defineComponent({
 				console.log(`stderr: ${chunkError}`);
 			}
 		},
-		transcribeFiles({ files, outputDir }) {
+		transcribeFiles({ files, outputDir }, openai) {
 			const limiter = new Bottleneck({
 				maxConcurrent: 15,
 				minTime: 1000 / 3,
@@ -434,15 +437,15 @@ export default defineComponent({
 						this.transcribe({
 							file,
 							outputDir,
-						})
+						}, openai)
 					);
 				})
 			);
 		},
-		transcribe({ file, outputDir }) {
+		transcribe({ file, outputDir }, openai) {
 			const readStream = fs.createReadStream(join(outputDir, file));
 			console.log(`Transcribing file: ${file}`);
-			return this.openai.audio.transcriptions.create({
+			return openai.audio.transcriptions.create({
 				model: "whisper-1",
 				file: readStream,
 			});
@@ -1219,14 +1222,14 @@ export default defineComponent({
 	},
 	async run({ steps, $ }) {
 		console.log("Checking that file is under 300mb...");
-		await checkSize(steps.trigger.event.size);
+		await this.checkSize(steps.trigger.event.size);
 		console.log("File is under 300mb. Continuing...");
 
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
 		const fileInfo = {};
 
-		if (steps.download_file.$return_value.name) {
+		if (steps.download_file?.$return_value?.name) {
 			// Google Drive method
 			fileInfo.path = `/tmp/${steps.download_file.$return_value.name}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
@@ -1236,7 +1239,7 @@ export default defineComponent({
 				);
 			}
 		} else if (
-			steps.download_file.$return_value &&
+			steps.download_file?.$return_value &&
 			/^\/tmp\/.+/.test(steps.download_file.$return_value)
 		) {
 			// MS OneDrive method
@@ -1261,9 +1264,11 @@ export default defineComponent({
 
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
-		fileInfo.whisper = await this.chunkFileAndTranscribe({
-			file: fileInfo.path,
+		const openai = new OpenAI({
+			apiKey: this.openai.$auth.api_key,
 		});
+
+		fileInfo.whisper = await this.chunkFileAndTranscribe({ file: fileInfo.path }, openai);
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
 			? "gpt-4-32k"
@@ -1289,10 +1294,6 @@ export default defineComponent({
 			encode(fileInfo.full_transcript),
 			maxTokens
 		);
-
-		const openai = new OpenAI({
-			apiKey: this.openai.$auth.api_key,
-		});
 
 		fileInfo.summary = await this.sendToChat(
 			openai,
