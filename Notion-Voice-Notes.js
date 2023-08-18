@@ -1,9 +1,8 @@
 /** 
- * To Do
- * - Remove paragraph numbers
- * - Ship OneDrive and GDrive versions and test
- * - Link new workflows in pinned comment
- * - Update blog post with new shared workflows
+ * To Do:
+ * 
+ * - Implement more robust JSON repair
+ * - Write my own streaming version of the MS OneDrive download script
  */
 
 import { Client } from "@notionhq/client";
@@ -277,7 +276,7 @@ export default defineComponent({
 			chat_model: {
 				type: "string",
 				label: "ChatGPT Model",
-				description: `Select the model you would like to use.\n\nDefaults to **gpt-3.5-turbo**, which is recommended for this workflow.\n\nSwitching to the gpt-3.5-turbo-16k model may help you handle longer files. You can also use **gpt-4**, which may provide more insightful summaries and lists, but it will increase the cost of the summarization step by a factor of 20 (it won't increase the cost of transcription, which is typically about 90% of the cost).`,
+				description: `Select the model you would like to use.\n\nDefaults to **gpt-3.5-turbo**, which is recommended for this workflow.\n\nSwitching to the gpt-3.5-turbo-16k model will allow you to set the **summary density** option below up to 5,000 tokens, rather than gpt-3.5-turbo's max of 2,750.\n\nYou can also use **gpt-4**, which may provide more insightful summaries and lists, but it will increase the cost of the summarization step by a factor of 20 (it won't increase the cost of transcription, which is typically about 90% of the cost).`,
 				default: "gpt-3.5-turbo",
 				options: results.map((model) => ({
 					label: model.id,
@@ -289,7 +288,7 @@ export default defineComponent({
 			summary_density: {
 				type: "integer",
 				label: "Summary Density (Advanced)",
-				description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
+				description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis *may* enable the script to handle longer files as the script uses concurrent requests, and a ChatGPT may take less time to process a chunk with fewer prompt tokens.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
 				min: 1000,
 				max:
 					this.chat_model.includes("gpt-4") ||
@@ -652,9 +651,9 @@ export default defineComponent({
 				const newArray = [];
 
 				for (
-					let i = 0, paragraphNumber = 1;
+					let i = 0;
 					i < arr.length;
-					i += sentencesPerParagraph, paragraphNumber++
+					i += sentencesPerParagraph
 				) {
 					const group = [];
 					for (let j = i; j < i + sentencesPerParagraph; j++) {
@@ -663,7 +662,7 @@ export default defineComponent({
 						}
 					}
 
-					newArray.push(paragraphNumber + ": " + group.join(" "));
+					newArray.push(group.join(" "));
 				}
 
 				return newArray;
@@ -1262,6 +1261,9 @@ export default defineComponent({
 			);
 		}
 
+		console.log(`File path and mime:`)
+		console.log(fileInfo)
+		
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
 		const openai = new OpenAI({
