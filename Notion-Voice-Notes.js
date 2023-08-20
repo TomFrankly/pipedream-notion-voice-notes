@@ -1,10 +1,3 @@
-/** 
- * To Do:
- * 
- * - Implement more robust JSON repair
- * - Write my own streaming version of the MS OneDrive download script
- */
-
 import { Client } from "@notionhq/client";
 import Bottleneck from "bottleneck";
 import OpenAI from "openai";
@@ -21,6 +14,7 @@ import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import openai from "@pipedream/openai";
 import natural from "natural";
 import retry from "async-retry";
+import { jsonrepair } from "jsonrepair";
 
 const execAsync = promisify(exec);
 
@@ -103,7 +97,11 @@ export default defineComponent({
 			app: "notion",
 			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database. It is currently configured to support **Dropbox** for audio file uploads. More cloud storage providers are coming in future releases.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n*P.S. – This free workflow took hundreds of hours to build. If you\'d like to support my work, buying one of my templates is the best way to do so!*\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n`,
 		},
-		openai,
+		openai: {
+			type: "app",
+			app: "openai",
+			description: `**Important:** If you're currently using OpenAI's free trial credit, your API key will be subject to much lower [rate limits](https://platform.openai.com/account/rate-limits), and may not be able to handle longer files (aprox. 1 hour+, but the actual limit is hard to determine). If you're looking to work with long files, I recommend [setting up your billing info at OpenAI now](https://platform.openai.com/account/billing/overview).\n\nAdditionally, you'll need generate a new API key and enter it here once you enter your billing information at OpenAI; once you do that, trial keys stop working.\n\n`,
+		},
 		databaseID: {
 			type: "string",
 			label: "Notes Database",
@@ -384,10 +382,13 @@ export default defineComponent({
 			const files = await fs.promises.readdir(outputDir);
 
 			console.log(`Transcribing chunks: ${files}`);
-			return await this.transcribeFiles({
-				files,
-				outputDir,
-			}, openai);
+			return await this.transcribeFiles(
+				{
+					files,
+					outputDir,
+				},
+				openai
+			);
 		},
 		async chunkFile({ file, outputDir }) {
 			const ffmpegPath = ffmpegInstaller.path;
@@ -433,10 +434,13 @@ export default defineComponent({
 			return Promise.all(
 				files.map((file) => {
 					return limiter.schedule(() =>
-						this.transcribe({
-							file,
-							outputDir,
-						}, openai)
+						this.transcribe(
+							{
+								file,
+								outputDir,
+							},
+							openai
+						)
 					);
 				})
 			);
@@ -444,16 +448,56 @@ export default defineComponent({
 		transcribe({ file, outputDir }, openai) {
 			const readStream = fs.createReadStream(join(outputDir, file));
 			console.log(`Transcribing file: ${file}`);
-			return openai.audio.transcriptions.create({
-				model: "whisper-1",
-				file: readStream,
-			});
+			const response = openai.audio.transcriptions
+				.create(
+					{
+						model: "whisper-1",
+						file: readStream,
+					},
+					{
+						maxRetries: 5,
+					}
+				)
+				.withResponse();
+
+			// Log the user's Audio limits
+			const limits = {
+				requestRate: response.response.headers.get(
+					"x-ratelimit-limit-requests"
+				),
+				tokenRate: response.response.headers.get("x-ratelimit-limit-tokens"),
+				remainingRequests: response.response.headers.get(
+					"x-ratelimit-remaining-requests"
+				),
+				remainingTokens: response.response.headers.get(
+					"x-ratelimit-remaining-tokens"
+				),
+				rateResetTimeRemaining: response.response.headers.get(
+					"x-ratelimit-reset-requests"
+				),
+				tokenRestTimeRemaining: response.response.headers.get(
+					"x-ratelimit-reset-tokens"
+				),
+			};
+			console.log(
+				"Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):"
+			);
+			console.table(limits);
+
+			// Warn the user if their remaining requests are down to 1
+			if (limits.remainingRequests <= 1) {
+				console.log(
+					"WARNING: Only 1 request remaining in the current time period. Rate-limiting may occur after the next request. If so, this script will attempt to retry with exponential backoff, but the workflow run may hit your Timeout Settings (https://pipedream.com/docs/workflows/settings/#execution-timeout-limit) before completing. If you have not upgraded your OpenAI account to a paid account by adding your billing information (and generated a new API key afterwards, replacing your trial key here in Pipedream with that new one), your trial API key is subject to low rate limits. Learn more here: https://platform.openai.com/docs/guides/rate-limits/overview"
+				);
+			}
+
+			return response;
 		},
 		combineWhisperChunks(chunksArray) {
 			let combinedText = "";
 
 			for (let i = 0; i < chunksArray.length; i++) {
-				let currentChunk = chunksArray[i].text;
+				let currentChunk = chunksArray[i].data.text; // Added .data to comply with the withResponse() data scheme
 				let nextChunk =
 					i < chunksArray.length - 1 ? chunksArray[i + 1].text : null;
 
@@ -525,20 +569,25 @@ export default defineComponent({
 			return retry(
 				async (bail, attempt) => {
 					console.log(`Attempt ${attempt}: Sending chunk ${index} to ChatGPT`);
-					return openai.chat.completions.create({
-						model: this.chat_model ?? "gpt-3.5-turbo",
-						messages: [
-							{
-								role: "user",
-								content: createPrompt(prompt),
-							},
-							{
-								role: "system",
-								content: systemPrompt,
-							},
-						],
-						temperature: 0.2,
-					});
+					return openai.chat.completions.create(
+						{
+							model: this.chat_model ?? "gpt-3.5-turbo",
+							messages: [
+								{
+									role: "user",
+									content: createPrompt(prompt),
+								},
+								{
+									role: "system",
+									content: systemPrompt,
+								},
+							],
+							temperature: 0.2,
+						},
+						{
+							maxRetries: 3,
+						}
+					);
 				},
 				{
 					retries: 3,
@@ -554,30 +603,53 @@ export default defineComponent({
 			const resultsArray = [];
 			console.log(`Formatting the ChatGPT results...`);
 			for (let result of summaryArray) {
-				// ChatGPT loves to occasionally throw commas after the final element in arrays, so let's remove them
-				function removeTrailingCommas(jsonString) {
-					const regex = /,\s*(?=])/g;
-					return jsonString.replace(regex, "");
-				}
-
-				// Need some code that will ensure we only get the JSON portion of the response
-				// This should be the entire response already, but we can't always trust GPT
-				const jsonString = result.choices[0].message.content
-					.replace(/^[^\{]*?{/, "{")
-					.replace(/\}[^}]*?$/, "}");
-
-				const cleanedJsonString = removeTrailingCommas(jsonString);
-
+				const input = result.choices[0].message.content;
 				let jsonObj;
 				try {
-					jsonObj = JSON.parse(cleanedJsonString);
+					jsonObj = JSON.parse(input);
 				} catch (error) {
-					console.error("Error while parsing cleaned JSON string:");
-					console.error(error);
-					console.log("Original JSON string:", jsonString);
-					console.log(cleanedJsonString);
-					console.log("Cleaned JSON string:", cleanedJsonString);
-					jsonObj = {};
+					try {
+						console.log(
+							`Encountered an error: ${error}. Attempting JSON repair...`
+						);
+						const cleanedJsonString = jsonrepair(input);
+						jsonObj = JSON.parse(cleanedJsonString);
+					} catch (error) {
+						console.log(
+							`First JSON repair attempt failed with error: ${error}. Attempting more involved JSON repair...`
+						);
+						try {
+							// Find the first { or [ and the last } or ]
+							const beginningIndex = Math.min(
+								input.indexOf("{") !== -1 ? input.indexOf("{") : Infinity,
+								input.indexOf("[") !== -1 ? input.indexOf("[") : Infinity
+							);
+							const endingIndex = Math.max(
+								input.lastIndexOf("}") !== -1
+									? input.lastIndexOf("}")
+									: -Infinity,
+								input.lastIndexOf("]") !== -1
+									? input.lastIndexOf("]")
+									: -Infinity
+							);
+
+							// If no JSON object or array is found, throw an error
+							if (beginningIndex == Infinity || endingIndex == -1) {
+								throw new Error(
+									"No JSON object or array found (in repairJSON)."
+								);
+							}
+
+							const cleanedJsonString = jsonrepair(
+								input.substring(beginningIndex, endingIndex + 1)
+							);
+							jsonObj = JSON.parse(cleanedJsonString);
+						} catch (error) {
+							throw new Error(
+								`Recieved invalid JSON from ChatGPT. All JSON repair efforts failed. Recommended fix: Lower the ChatGPT model temperature and try uploading the file again.`
+							);
+						}
+					}
 				}
 
 				const response = {
@@ -650,11 +722,7 @@ export default defineComponent({
 			function sentenceGrouper(arr) {
 				const newArray = [];
 
-				for (
-					let i = 0;
-					i < arr.length;
-					i += sentencesPerParagraph
-				) {
+				for (let i = 0; i < arr.length; i += sentencesPerParagraph) {
 					const group = [];
 					for (let j = i; j < i + sentencesPerParagraph; j++) {
 						if (arr[j]) {
@@ -1261,16 +1329,19 @@ export default defineComponent({
 			);
 		}
 
-		console.log(`File path and mime:`)
-		console.log(fileInfo)
-		
+		console.log(`File path and mime:`);
+		console.log(fileInfo);
+
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
 		const openai = new OpenAI({
 			apiKey: this.openai.$auth.api_key,
 		});
 
-		fileInfo.whisper = await this.chunkFileAndTranscribe({ file: fileInfo.path }, openai);
+		fileInfo.whisper = await this.chunkFileAndTranscribe(
+			{ file: fileInfo.path },
+			openai
+		);
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
 			? "gpt-4-32k"
@@ -1292,8 +1363,13 @@ export default defineComponent({
 
 		fileInfo.full_transcript = this.combineWhisperChunks(fileInfo.whisper);
 
+		const encodedTranscript = encode(fileInfo.full_transcript);
+		console.log(
+			`Full transcript is ${encodedTranscript.lenth} tokens. If you run into rate-limit errors and are currently using free trial credit from OpenAI, please note the Tokens Per Minute (TPM) limits: https://platform.openai.com/docs/guides/rate-limits/what-are-the-rate-limits-for-our-api`
+		);
+
 		fileInfo.transcript_chunks = this.splitTranscript(
-			encode(fileInfo.full_transcript),
+			encodedTranscript,
 			maxTokens
 		);
 
