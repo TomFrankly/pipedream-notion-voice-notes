@@ -11,43 +11,13 @@ import { inspect } from "util";
 import { join, extname } from "path";
 import { exec } from "child_process";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import openai from "@pipedream/openai";
 import natural from "natural";
 import retry from "async-retry";
 import { jsonrepair } from "jsonrepair";
 
 const execAsync = promisify(exec);
 
-const systemPrompt = `You are an assistant that only speaks JSON. Do not write normal text.
-
-Example formatting:
-
-{
-    "title": "Notion Buttons",
-    "summary": "A collection of buttons for Notion",
-    "action_items": [
-        "item 1",
-        "item 2",
-        "item 3"
-    ],
-    "follow_up": [
-        "item 1",
-        "item 2",
-        "item 3"
-    ],
-    "arguments": [
-        "item 1",
-        "item 2",
-        "item 3"
-    ],
-    "related_topics": [
-        "item 1",
-        "item 2",
-        "item 3"
-    ]
-    "sentiment": "positive"
-}
-              `;
+const systemPrompt = `You are an assistant that only speaks JSON. Do not write normal text. Example formatting: {"title": "Notion Buttons","summary": "A collection of buttons for Notion","action_items": ["item 1","item 2","item 3"],"follow_up": ["item 1","item 2","item 3"],"arguments": ["item 1","item 2","item 3"],"related_topics": ["item 1","item 2","item 3"],"sentiment": "positive"}`;
 
 function createPrompt(arr) {
 	return `Analyze the transcript provided below, then provide the following:
