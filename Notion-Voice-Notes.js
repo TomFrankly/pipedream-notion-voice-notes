@@ -266,6 +266,14 @@ export default defineComponent({
 				default: 2750,
 				optional: true,
 			},
+			temperature: {
+				type: "integer",
+				label: "Model Temperature",
+				description: `Set the temperature for the model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0. Higher temeperatures may result in more "creative" output, but have the potential to cause the output the fail to be valid JSON. This workflow defaults to 0.2.`,
+				optional: true,
+				min: 0,
+				max: 20
+			}
 		};
 
 		return props;
@@ -552,7 +560,7 @@ export default defineComponent({
 									content: systemPrompt,
 								},
 							],
-							temperature: 0.2,
+							temperature: this.temperature / 10 ?? 0.2,
 						},
 						{
 							maxRetries: 3,
