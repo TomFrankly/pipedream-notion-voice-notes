@@ -272,7 +272,15 @@ export default defineComponent({
 				description: `Set the temperature for the model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0. Higher temeperatures may result in more "creative" output, but have the potential to cause the output the fail to be valid JSON. This workflow defaults to 0.2.`,
 				optional: true,
 				min: 0,
-				max: 20
+				max: 20,
+			},
+			chunk_size: {
+				type: "integer",
+				label: "Audio File Chunk Size",
+				description: `Your audio file will be split into chunks before being sent to Whisper for transcription. This is done to handle Whisper's 24mb max file size limit.\n\nThis setting will let you make those chunks even smaller – anywhere between 8mb and 24mb.\n\nSince the workflow makes concurrent requests to Whisper, a smaller chunk size may allow this workflow to handle longer files.\n\nSome things to note with this setting: * Chunks will default to 24mb if you don't set a value here. I've successfully transcribed a 2-hour file at this default setting by changing my workflow's timemout limit to 300 seconds, which is possible on the free plan. * If you're currently using trial credit with OpenAI and havne't added your billing information, your [Audio rate limit](https://platform.openai.com/docs/guides/rate-limits/what-are-the-rate-limits-for-our-api) will likely be 3 requests per minute – meaning setting a smaller chunk size may cause you to hit that rate limit. You can fix this by adding your billing info and generating a new API key. * Longer files may also benefit from your workflow having a higher RAM setting. * Pipedream has other, harder-to-detect limits that have prevented me from successfully summarizing a 4-hour file. These limits currently aren't clear to me, but I think it has something to do with variables being unable to hold extremely large amounts of text. If you need to summarize an extremely long file, consider splitting it up manually first.`,
+				optional: true,
+				min: 8,
+				max: 24,
 			}
 		};
 
@@ -373,7 +381,8 @@ export default defineComponent({
 			const ext = extname(file);
 
 			const fileSizeInMB = fs.statSync(file).size / (1024 * 1024);
-			const numberOfChunks = Math.ceil(fileSizeInMB / 24);
+			const chunkSize = this.chunk_size ?? 24
+			const numberOfChunks = Math.ceil(fileSizeInMB / chunkSize);
 
 			if (numberOfChunks === 1) {
 				await execAsync(`cp "${file}" "${outputDir}/chunk-000${ext}"`);
@@ -424,52 +433,60 @@ export default defineComponent({
 			);
 		},
 		transcribe({ file, outputDir }, openai) {
-			const readStream = fs.createReadStream(join(outputDir, file));
-			console.log(`Transcribing file: ${file}`);
-			const response = openai.audio.transcriptions
-				.create(
-					{
-						model: "whisper-1",
-						file: readStream,
-					},
-					{
-						maxRetries: 5,
+			return new Promise(async (resolve, reject) => {
+				const readStream = fs.createReadStream(join(outputDir, file));
+				console.log(`Transcribing file: ${file}`);
+				try {
+					const response = await openai.audio.transcriptions
+						.create(
+							{
+								model: "whisper-1",
+								file: readStream,
+							},
+							{
+								maxRetries: 5,
+							}
+						)
+						.withResponse();
+
+					// Log the user's Audio limits
+					const limits = {
+						requestRate: response.response.headers.get(
+							"x-ratelimit-limit-requests"
+						),
+						tokenRate: response.response.headers.get(
+							"x-ratelimit-limit-tokens"
+						),
+						remainingRequests: response.response.headers.get(
+							"x-ratelimit-remaining-requests"
+						),
+						remainingTokens: response.response.headers.get(
+							"x-ratelimit-remaining-tokens"
+						),
+						rateResetTimeRemaining: response.response.headers.get(
+							"x-ratelimit-reset-requests"
+						),
+						tokenRestTimeRemaining: response.response.headers.get(
+							"x-ratelimit-reset-tokens"
+						),
+					};
+					console.log(
+						"Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):"
+					);
+					console.table(limits);
+
+					// Warn the user if their remaining requests are down to 1
+					if (limits.remainingRequests <= 1) {
+						console.log(
+							"WARNING: Only 1 request remaining in the current time period. Rate-limiting may occur after the next request. If so, this script will attempt to retry with exponential backoff, but the workflow run may hit your Timeout Settings (https://pipedream.com/docs/workflows/settings/#execution-timeout-limit) before completing. If you have not upgraded your OpenAI account to a paid account by adding your billing information (and generated a new API key afterwards, replacing your trial key here in Pipedream with that new one), your trial API key is subject to low rate limits. Learn more here: https://platform.openai.com/docs/guides/rate-limits/overview"
+						);
 					}
-				)
-				.withResponse();
 
-			// Log the user's Audio limits
-			const limits = {
-				requestRate: response.response.headers.get(
-					"x-ratelimit-limit-requests"
-				),
-				tokenRate: response.response.headers.get("x-ratelimit-limit-tokens"),
-				remainingRequests: response.response.headers.get(
-					"x-ratelimit-remaining-requests"
-				),
-				remainingTokens: response.response.headers.get(
-					"x-ratelimit-remaining-tokens"
-				),
-				rateResetTimeRemaining: response.response.headers.get(
-					"x-ratelimit-reset-requests"
-				),
-				tokenRestTimeRemaining: response.response.headers.get(
-					"x-ratelimit-reset-tokens"
-				),
-			};
-			console.log(
-				"Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):"
-			);
-			console.table(limits);
-
-			// Warn the user if their remaining requests are down to 1
-			if (limits.remainingRequests <= 1) {
-				console.log(
-					"WARNING: Only 1 request remaining in the current time period. Rate-limiting may occur after the next request. If so, this script will attempt to retry with exponential backoff, but the workflow run may hit your Timeout Settings (https://pipedream.com/docs/workflows/settings/#execution-timeout-limit) before completing. If you have not upgraded your OpenAI account to a paid account by adding your billing information (and generated a new API key afterwards, replacing your trial key here in Pipedream with that new one), your trial API key is subject to low rate limits. Learn more here: https://platform.openai.com/docs/guides/rate-limits/overview"
-				);
-			}
-
-			return response;
+					resolve(response);
+				} catch (error) {
+					reject(error);
+				}
+			});
 		},
 		combineWhisperChunks(chunksArray) {
 			let combinedText = "";
@@ -1320,6 +1337,9 @@ export default defineComponent({
 			{ file: fileInfo.path },
 			openai
 		);
+
+		// Clean up the file from /tmp/
+		await fs.promises.unlink(fileInfo.path);
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
 			? "gpt-4-32k"
