@@ -253,19 +253,21 @@ export default defineComponent({
 				optional: true,
 				reloadProps: true,
 			},
-			summary_density: {
-				type: "integer",
-				label: "Summary Density (Advanced)",
-				description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis *may* enable the script to handle longer files as the script uses concurrent requests, and a ChatGPT may take less time to process a chunk with fewer prompt tokens.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
-				min: 1000,
-				max:
-					this.chat_model.includes("gpt-4") ||
-					this.chat_model.includes("gpt-3.5-turbo-16k")
-						? 5000
-						: 2750,
-				default: 2750,
-				optional: true,
-			},
+			...(this.chat_model && {
+				summary_density: {
+					type: "integer",
+					label: "Summary Density (Advanced)",
+					description: `*It is recommended to leave this setting at its default unless you have a good understanding of how ChatGPT handles tokens.*\n\nSets the maximum of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to ChatGPT in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis *may* enable the script to handle longer files as the script uses concurrent requests, and a ChatGPT may take less time to process a chunk with fewer prompt tokens.\n\n**This will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value is 5,000 tokens (2,750 for gpt-3.5-turbo, which has a 4,096-token limit that includes the completion and system instruction tokens), and the minimum value is 1,000 tokens.\n\n*If you need to go beyond these limits, feel free to modify the code and run tests; these limits were chosen to avoid Pipedream timeout and database errors that can occur if chunks are significantly smaller or larger, respectively. Note that OpenAI may count tokens differently than this code does; I've found that it appears to given lower token counts, even though this code uses OpenAI's own open-source tokenizer for counting.*`,
+					min: 1000,
+					max:
+						this.chat_model.includes("gpt-4") ||
+						this.chat_model.includes("gpt-3.5-turbo-16k")
+							? 5000
+							: 2750,
+					default: 2750,
+					optional: true,
+				},
+			}),
 			temperature: {
 				type: "integer",
 				label: "Model Temperature",
