@@ -17,7 +17,7 @@ import { jsonrepair } from "jsonrepair";
 
 const execAsync = promisify(exec);
 
-const systemPrompt = `You are an assistant that only speaks JSON. Do not write normal text. Example formatting: {"title": "Notion Buttons","summary": "A collection of buttons for Notion","action_items": ["item 1","item 2","item 3"],"follow_up": ["item 1","item 2","item 3"],"arguments": ["item 1","item 2","item 3"],"related_topics": ["item 1","item 2","item 3"],"sentiment": "positive"}`;
+const systemPrompt = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker". You only speak JSON. Do not write normal text. Example formatting: {"title": "Notion Buttons","summary": "A collection of buttons for Notion","action_items": ["item 1","item 2","item 3"],"follow_up": ["item 1","item 2","item 3"],"arguments": ["item 1","item 2","item 3"],"related_topics": ["item 1","item 2","item 3"],"sentiment": "positive"} Return only valid JSON.`;
 
 function createPrompt(arr) {
 	return `Analyze the transcript provided below, then provide the following:
@@ -60,17 +60,33 @@ const rates = {
 	},
 };
 
-export default defineComponent({
+const config = {
+	filePath: "",
+	chunkDir: "",
+};
+
+export default {
+	name: "Notion Voice Notes – Core",
+	description:
+		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
+	key: "notion-voice-notes",
+	version: "0.0.7",
+	type: "action",
 	props: {
 		notion: {
 			type: "app",
 			app: "notion",
-			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database. It is currently configured to support **Dropbox** for audio file uploads. More cloud storage providers are coming in future releases.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n*P.S. – This free workflow took hundreds of hours to build. If you\'d like to support my work, buying one of my templates is the best way to do so!*\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n`,
+			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is 100% free – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my development work, you can join **[The Automators' Club](https://thomasfrank.lemonsqueezy.com/checkout/buy/cf7f925f-1f2c-437d-ac15-ec248525a8a6)**, which is a $5/mo subscription that's totally optional.\n\nIf you'd like to support my work, consider subscribing!`,
 		},
 		openai: {
 			type: "app",
 			app: "openai",
 			description: `**Important:** If you're currently using OpenAI's free trial credit, your API key will be subject to much lower [rate limits](https://platform.openai.com/account/rate-limits), and may not be able to handle longer files (aprox. 1 hour+, but the actual limit is hard to determine). If you're looking to work with long files, I recommend [setting up your billing info at OpenAI now](https://platform.openai.com/account/billing/overview).\n\nAdditionally, you'll need generate a new API key and enter it here once you enter your billing information at OpenAI; once you do that, trial keys stop working.\n\n`,
+		},
+		steps: {
+			type: "object",
+			label: "Previous Step Data (Set by Default)",
+			description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
 		},
 		databaseID: {
 			type: "string",
@@ -283,7 +299,7 @@ export default defineComponent({
 				optional: true,
 				min: 8,
 				max: 24,
-			}
+			},
 		};
 
 		return props;
@@ -351,39 +367,56 @@ export default defineComponent({
 			} catch (error) {
 				// Log the error and return an error message or handle the error as required
 				console.error(error);
+
+				// Clean the file out of /tmp (no chunk cleanup needed at this stage)
+				await this.cleanTmp(false);
+
 				throw new Error(
 					`An error occurred while processing the audio file: ${error.message}`
 				);
 			}
 		},
 		async chunkFileAndTranscribe({ file }, openai) {
-			const outputDir = join("/tmp", "chunks");
+			const chunkDirName = "chunks-" + this.steps.trigger.context.id;
+			const outputDir = join("/tmp", chunkDirName);
+			config.chunkDir = outputDir;
 			await execAsync(`mkdir -p "${outputDir}"`);
 			await execAsync(`rm -f "${outputDir}/*"`);
 
-			console.log(`Chunking file: ${file}`);
-			await this.chunkFile({
-				file,
-				outputDir,
-			});
-
-			const files = await fs.promises.readdir(outputDir);
-
-			console.log(`Transcribing chunks: ${files}`);
-			return await this.transcribeFiles(
-				{
-					files,
+			try {
+				console.log(`Chunking file: ${file}`);
+				await this.chunkFile({
+					file,
 					outputDir,
-				},
-				openai
-			);
+				});
+
+				const files = await fs.promises.readdir(outputDir);
+
+				console.log(
+					`Chunks created successfully. Transcribing chunks: ${files}`
+				);
+				return await this.transcribeFiles(
+					{
+						files,
+						outputDir,
+					},
+					openai
+				);
+			} catch (error) {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
+
+				throw new Error(
+					`An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI: ${error.message}`
+				);
+			}
 		},
 		async chunkFile({ file, outputDir }) {
 			const ffmpegPath = ffmpegInstaller.path;
 			const ext = extname(file);
 
 			const fileSizeInMB = fs.statSync(file).size / (1024 * 1024);
-			const chunkSize = this.chunk_size ?? 24
+			const chunkSize = this.chunk_size ?? 24;
 			const numberOfChunks = Math.ceil(fileSizeInMB / chunkSize);
 
 			if (numberOfChunks === 1) {
@@ -416,8 +449,8 @@ export default defineComponent({
 		},
 		transcribeFiles({ files, outputDir }, openai) {
 			const limiter = new Bottleneck({
-				maxConcurrent: 15,
-				minTime: 1000 / 3,
+				maxConcurrent: 30, // Attempting to maximize performance
+				minTime: 1000 / 30,
 			});
 
 			return Promise.all(
@@ -473,7 +506,7 @@ export default defineComponent({
 						),
 					};
 					console.log(
-						"Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):"
+						`Received response from OpenAI Whisper endpoint for ${file}. Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):`
 					);
 					console.table(limits);
 
@@ -549,18 +582,29 @@ export default defineComponent({
 			return stringsArray;
 		},
 		async sendToChat(openai, stringsArray) {
-			const limiter = new Bottleneck({
-				maxConcurrent: 15,
-			});
+			try {
+				const limiter = new Bottleneck({
+					maxConcurrent: 35,
+				});
 
-			console.log(`Sending ${stringsArray.length} chunks to ChatGPT`);
-			const results = limiter.schedule(() => {
-				const tasks = stringsArray.map((arr, index) =>
-					this.chat(openai, arr, index)
+				console.log(`Sending ${stringsArray.length} chunks to ChatGPT`);
+				const results = limiter.schedule(() => {
+					const tasks = stringsArray.map((arr, index) =>
+						this.chat(openai, arr, index)
+					);
+					return Promise.all(tasks);
+				});
+				return results;
+			} catch (error) {
+				console.error(error);
+
+				// Clean the file out of /tmp
+				await this.cleanTmp();
+
+				throw new Error(
+					`An error occurred while sending the transcript to ChatGPT: ${error.message}`
 				);
-				return Promise.all(tasks);
-			});
-			return results;
+			}
 		},
 		async chat(openai, prompt, index) {
 			return retry(
@@ -596,7 +640,7 @@ export default defineComponent({
 				}
 			);
 		},
-		formatChat(summaryArray) {
+		async formatChat(summaryArray) {
 			const resultsArray = [];
 			console.log(`Formatting the ChatGPT results...`);
 			for (let result of summaryArray) {
@@ -611,6 +655,7 @@ export default defineComponent({
 						);
 						const cleanedJsonString = jsonrepair(input);
 						jsonObj = JSON.parse(cleanedJsonString);
+						console.log(`JSON repair successful.`);
 					} catch (error) {
 						console.log(
 							`First JSON repair attempt failed with error: ${error}. Attempting more involved JSON repair...`
@@ -632,6 +677,9 @@ export default defineComponent({
 
 							// If no JSON object or array is found, throw an error
 							if (beginningIndex == Infinity || endingIndex == -1) {
+								// Clean the file out of /tmp
+								await this.cleanTmp();
+								
 								throw new Error(
 									"No JSON object or array found (in repairJSON)."
 								);
@@ -641,7 +689,11 @@ export default defineComponent({
 								input.substring(beginningIndex, endingIndex + 1)
 							);
 							jsonObj = JSON.parse(cleanedJsonString);
+							console.log(`2nd-stage JSON repair successful.`);
 						} catch (error) {
+							// Clean the file out of /tmp
+							await this.cleanTmp();
+							
 							throw new Error(
 								`Recieved invalid JSON from ChatGPT. All JSON repair efforts failed. Recommended fix: Lower the ChatGPT model temperature and try uploading the file again.`
 							);
@@ -714,7 +766,7 @@ export default defineComponent({
 			const transcriptSentences = tokenizer.tokenize(transcript);
 			const summarySentences = tokenizer.tokenize(summary);
 
-			const sentencesPerParagraph = 5;
+			const sentencesPerParagraph = 4;
 
 			function sentenceGrouper(arr) {
 				const newArray = [];
@@ -736,8 +788,8 @@ export default defineComponent({
 			function charMaxChecker(arr) {
 				const sentenceArray = arr
 					.map((element) => {
-						if (element.length > 800) {
-							const pieces = element.match(/.{800}[^\s]*\s*/g);
+						if (element.length > 1200) {
+							const pieces = element.match(/.{1200}[^\s]*\s*/g);
 							if (element.length > pieces.join("").length) {
 								pieces.push(element.slice(pieces.join("").length));
 							}
@@ -768,12 +820,18 @@ export default defineComponent({
 		},
 		async calculateTranscriptCost(duration, model) {
 			if (!duration || typeof duration !== "number") {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
+
 				throw new Error(
 					"Invalid duration number (thrown from calculateTranscriptCost)."
 				);
 			}
 
 			if (!model || typeof model !== "string") {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
+				
 				throw new Error(
 					"Invalid model string (thrown from calculateTranscriptCost)."
 				);
@@ -781,6 +839,7 @@ export default defineComponent({
 
 			console.log(`Calculating the cost of the transcript...`);
 			const cost = (duration / 60) * rates[model].completion;
+			console.log(`Transcript cost: $${cost.toFixed(3).toString()}`);
 
 			return cost;
 		},
@@ -791,10 +850,14 @@ export default defineComponent({
 				!usage.prompt_tokens ||
 				!usage.completion_tokens
 			) {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
 				throw new Error("Invalid usage object (thrown from calculateGPTCost).");
 			}
 
 			if (!model || typeof model !== "string") {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
 				throw new Error("Invalid model string (thrown from calculateGPTCost).");
 			}
 
@@ -807,6 +870,8 @@ export default defineComponent({
 				: "gpt-3.5-turbo";
 
 			if (!rates[chatModel]) {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
 				throw new Error("Non-supported model. (thrown from calculateGPTCost).");
 			}
 
@@ -819,6 +884,7 @@ export default defineComponent({
 					return this.prompt + this.completion;
 				},
 			};
+			console.log(`Summary cost: $${costs.total.toFixed(3).toString()}`);
 
 			return costs.total;
 		},
@@ -1160,6 +1226,8 @@ export default defineComponent({
 					}
 				);
 			} catch (error) {
+				// Clean the file out of /tmp
+				await this.cleanTmp();
 				throw new Error("Failed to create Notion page.");
 			}
 
@@ -1283,19 +1351,28 @@ export default defineComponent({
 				}
 			);
 		},
+		async cleanTmp(cleanChunks = true) {
+			console.log(`Cleaning up the /tmp/ directory...`);
+			await fs.promises.unlink(config.filePath);
+			if (cleanChunks && config.chunkDir.length > 0) {
+				console.log(`Cleaning up ${config.chunkDir}...`);
+				await execAsync(`rm -rf "${config.chunkDir}"`);
+			}
+			console.log(`Cleanup complete.`);
+		},
 	},
 	async run({ steps, $ }) {
 		console.log("Checking that file is under 300mb...");
-		await this.checkSize(steps.trigger.event.size);
+		await this.checkSize(this.steps.trigger.event.size);
 		console.log("File is under 300mb. Continuing...");
 
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
 		const fileInfo = {};
 
-		if (steps.download_file?.$return_value?.name) {
+		if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive method
-			fileInfo.path = `/tmp/${steps.download_file.$return_value.name}`;
+			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
 				throw new Error(
@@ -1303,11 +1380,11 @@ export default defineComponent({
 				);
 			}
 		} else if (
-			steps.download_file?.$return_value &&
+			this.steps.download_file?.$return_value &&
 			/^\/tmp\/.+/.test(steps.download_file.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.path = steps.download_file.$return_value;
+			fileInfo.path = this.steps.download_file.$return_value;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
 				throw new Error(
@@ -1319,15 +1396,18 @@ export default defineComponent({
 			Object.assign(
 				fileInfo,
 				await this.downloadToTmp(
-					steps.trigger.event.link,
-					steps.trigger.event.path_lower,
-					steps.trigger.event.size
+					this.steps.trigger.event.link,
+					this.steps.trigger.event.path_lower,
+					this.steps.trigger.event.size
 				)
 			);
 		}
 
 		console.log(`File path and mime:`);
 		console.log(fileInfo);
+
+		// Write fileInfo to config for easy cleanup later
+		config.filePath = fileInfo.path;
 
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
@@ -1341,7 +1421,7 @@ export default defineComponent({
 		);
 
 		// Clean up the file from /tmp/
-		await fs.promises.unlink(fileInfo.path);
+		await this.cleanTmp();
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
 			? "gpt-4-32k"
@@ -1365,7 +1445,7 @@ export default defineComponent({
 
 		const encodedTranscript = encode(fileInfo.full_transcript);
 		console.log(
-			`Full transcript is ${encodedTranscript.lenth} tokens. If you run into rate-limit errors and are currently using free trial credit from OpenAI, please note the Tokens Per Minute (TPM) limits: https://platform.openai.com/docs/guides/rate-limits/what-are-the-rate-limits-for-our-api`
+			`Full transcript is ${encodedTranscript.length} tokens. If you run into rate-limit errors and are currently using free trial credit from OpenAI, please note the Tokens Per Minute (TPM) limits: https://platform.openai.com/docs/guides/rate-limits/what-are-the-rate-limits-for-our-api`
 		);
 
 		fileInfo.transcript_chunks = this.splitTranscript(
@@ -1378,7 +1458,7 @@ export default defineComponent({
 			fileInfo.transcript_chunks
 		);
 
-		fileInfo.formatted_chat = this.formatChat(fileInfo.summary);
+		fileInfo.formatted_chat = await this.formatChat(fileInfo.summary);
 
 		fileInfo.paragraphs = this.makeParagraphs(
 			fileInfo.full_transcript,
@@ -1401,7 +1481,9 @@ export default defineComponent({
 			}, 0),
 		};
 
-		console.log(`Total tokens used in the summary process: ${summaryUsage}`);
+		console.log(
+			`Total tokens used in the summary process: ${summaryUsage.prompt_tokens} prompt tokens and ${summaryUsage.completion_tokens} completion tokens.`
+		);
 
 		fileInfo.cost.summary = await this.calculateGPTCost(
 			summaryUsage,
@@ -1409,7 +1491,7 @@ export default defineComponent({
 		);
 
 		fileInfo.notion_response = await this.createNotionPage(
-			steps,
+			this.steps,
 			notion,
 			fileInfo.duration,
 			fileInfo.formatted_chat,
@@ -1424,4 +1506,4 @@ export default defineComponent({
 
 		return fileInfo;
 	},
-});
+};
