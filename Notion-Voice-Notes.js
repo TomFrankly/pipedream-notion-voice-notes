@@ -49,7 +49,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.3.5",
+	version: "0.3.6",
 	type: "action",
 	props: {
 		notion: {
@@ -1601,7 +1601,7 @@ export default {
 			const summaryAdditionResponses = await Promise.all(
 				summaryArray.map((summary, index) =>
 					limiter.schedule(() =>
-						this.sentTranscripttoNotion(notion, summary, pageID, index, "Summary")
+						this.sendTranscripttoNotion(notion, summary, pageID, index, "Summary")
 					)
 				)
 			);
