@@ -78,7 +78,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.0.8",
+	version: "0.1.3",
 	type: "action",
 	props: {
 		notion: {
@@ -336,6 +336,10 @@ export default {
 				throw new Error(
 					"File is too large. Files must be mp3 or m4a files under 300mb."
 				);
+			} else {
+				// Log file size in mb to nearest hundredth
+				const readableFileSize = fileSize / 1000000;
+				console.log(`File size is approximately ${readableFileSize.toFixed(1).toString()}mb.`);
 			}
 		},
 		async downloadToTmp(fileLink, filePath, fileSize) {
@@ -549,30 +553,41 @@ export default {
 				}
 			});
 		},
-		combineWhisperChunks(chunksArray) {
-			let combinedText = "";
+		async combineWhisperChunks(chunksArray) {
+			console.log(`Combining ${chunksArray.length} transcript chunks into a single transcript...`);
 
-			for (let i = 0; i < chunksArray.length; i++) {
-				let currentChunk = chunksArray[i].data.text; // Added .data to comply with the withResponse() data scheme
-				let nextChunk =
-					i < chunksArray.length - 1 ? chunksArray[i + 1].text : null;
+			try {
+				let combinedText = "";
 
-				if (
-					nextChunk &&
-					currentChunk.endsWith(".") &&
-					nextChunk.charAt(0).toLowerCase() === nextChunk.charAt(0)
-				) {
-					currentChunk = currentChunk.slice(0, -1);
+				for (let i = 0; i < chunksArray.length; i++) {
+					let currentChunk = chunksArray[i].data.text; // Added .data to comply with the withResponse() data scheme in the new OpenAI JS SDK
+					let nextChunk =
+						i < chunksArray.length - 1 ? chunksArray[i + 1].data.text : null; // Added .data here too
+
+					if (
+						nextChunk &&
+						currentChunk.endsWith(".") &&
+						nextChunk.charAt(0).toLowerCase() === nextChunk.charAt(0)
+					) {
+						currentChunk = currentChunk.slice(0, -1);
+					}
+
+					if (i < chunksArray.length - 1) {
+						currentChunk += " ";
+					}
+
+					combinedText += currentChunk;
 				}
 
-				if (i < chunksArray.length - 1) {
-					currentChunk += " ";
-				}
+				console.log("Transcript combined successfully.");
+				return combinedText;
+			} catch (error) {
+				await this.cleanTmp();
 
-				combinedText += currentChunk;
+				throw new Error(
+					`An error occurred while combining the transcript chunks: ${error.message}`
+				);
 			}
-
-			return combinedText;
 		},
 		splitTranscript(encodedTranscript, maxTokens) {
 			const stringsArray = [];
@@ -604,32 +619,36 @@ export default {
 				currentIndex = endIndex;
 			}
 
-			console.log(`Split transcript into ${stringsArray.length} chunks`);
+			console.log(`Split transcript into ${stringsArray.length} chunks.`);
 			return stringsArray;
 		},
 		async moderationCheck(transcript, openai) {
+			console.log(`Initiating moderation check on the transcript.`);
 
-			console.log(
-				`Initiating moderation check on the transcript.`
-			);
-				
 			const chunks = this.makeParagraphs(transcript, 1800);
 
-			console.log(`Transcript split into ${chunks.length} chunks. Moderation check is most accurate on chunks of 2,000 characters or less. Moderation check will be performed on each chunk.`)
+			console.log(
+				`Transcript split into ${chunks.length} chunks. Moderation check is most accurate on chunks of 2,000 characters or less. Moderation check will be performed on each chunk.`
+			);
 
 			try {
 				const limiter = new Bottleneck({
-					maxConcurrent: 500
-				})
-
-				const moderationPromises = chunks.map((chunk, index) => {
-					return limiter.schedule(() => this.moderateChunk(index, chunk, openai));
+					maxConcurrent: 500,
 				});
-
-				await Promise.all(moderationPromises)
-
+			
+				const moderationPromises = chunks.map((chunk, index) => {
+					return limiter.schedule(() =>
+						this.moderateChunk(index, chunk, openai)
+					);
+				});
+			
+				await Promise.all(moderationPromises);
+			
+				console.log(`Moderation check completed successfully. No abusive content detected.`);
 			} catch (error) {
-				console.log(`An error occurred while performing a moderation check on the transcript: ${error.message}`)
+				await this.cleanTmp();
+				
+				throw new Error(`An error occurred while performing a moderation check on the transcript: ${error.message}`);
 			}
 		},
 		async moderateChunk(index, chunk, openai) {
@@ -637,20 +656,20 @@ export default {
 				const moderationResponse = await openai.moderations.create({
 					input: chunk,
 				});
-	
+
 				const flagged = moderationResponse.results[0].flagged;
-	
+
 				if (flagged === undefined || flagged === null) {
 					await this.cleanTmp();
-	
+
 					throw new Error(
 						"Moderation check failed. Request to OpenAI's Moderation endpoint could not be completed."
 					);
 				}
-	
+
 				if (flagged === true) {
 					await this.cleanTmp();
-	
+
 					console.log(
 						`Moderation check flagged innapropriate content in chunk ${index}.
 
@@ -661,14 +680,19 @@ export default {
 						Contents of moderation check:`
 					);
 					console.dir(moderationResponse, { depth: null });
-	
+
 					throw new Error(
-						"Detected inappropriate content in the transcript chunk. Summarization on this file cannot be completed."
+						`Detected inappropriate content in the transcript chunk. Summarization on this file cannot be completed.
+						
+						The content of this chunk is as follows:
+					
+						${chunk}
+						`
 					);
 				}
 			} catch (error) {
 				await this.cleanTmp();
-	
+
 				throw new Error(
 					`An error occurred while performing a moderation check on chunk ${index}.
 					
@@ -688,7 +712,7 @@ export default {
 					maxConcurrent: 35,
 				});
 
-				console.log(`Sending ${stringsArray.length} chunks to ChatGPT`);
+				console.log(`Sending ${stringsArray.length} chunks to ChatGPT...`);
 				const results = limiter.schedule(() => {
 					const tasks = stringsArray.map((arr, index) =>
 						this.chat(openai, arr, index)
@@ -1237,6 +1261,8 @@ export default {
 							color: "orange_background",
 						},
 					};
+
+					additionalInfoArray.push(argWarning);
 				}
 
 				for (let item of arr) {
@@ -1256,36 +1282,20 @@ export default {
 				}
 			}
 
-			additionalInfoHandler(
-				meta.main_points,
-				"Main Points",
-				"bulleted_list_item"
-			);
-			additionalInfoHandler(
-				meta.stories,
-				"Stories, Examples, and Citations",
-				"bulleted_list_item"
-			);
-			additionalInfoHandler(
-				meta.action_items,
-				"Potential Action Items",
-				"to_do"
-			);
-			additionalInfoHandler(
-				meta.follow_up,
-				"Follow-Up Questions",
-				"bulleted_list_item"
-			);
-			additionalInfoHandler(
-				meta.arguments,
-				"Arguments and Areas for Improvement",
-				"bulleted_list_item"
-			);
-			additionalInfoHandler(
-				meta.related_topics,
-				"Related Topics",
-				"bulleted_list_item"
-			);
+			const sections = [
+				{ arr: meta.main_points, header: "Main Points", itemType: "bulleted_list_item" },
+				{ arr: meta.stories, header: "Stories, Examples, and Citations", itemType: "bulleted_list_item" },
+				{ arr: meta.action_items, header: "Potential Action Items", itemType: "to_do" },
+				{ arr: meta.follow_up, header: "Follow-Up Questions", itemType: "bulleted_list_item" },
+				{ arr: meta.arguments, header: "Arguments and Areas for Improvement", itemType: "bulleted_list_item" },
+				{ arr: meta.related_topics, header: "Related Topics", itemType: "bulleted_list_item" },
+			]
+
+			for (let section of sections) {
+				if (section.arr && section.arr.length > 0) {
+					additionalInfoHandler(section.arr, section.header, section.itemType);
+				}
+			}
 
 			// Add sentiment and cost
 			const metaArray = [
@@ -1460,7 +1470,7 @@ export default {
 	async run({ steps, $ }) {
 		console.log("Checking that file is under 300mb...");
 		await this.checkSize(this.steps.trigger.event.size);
-		console.log("File is under 300mb. Continuing...");
+		console.log("File is under the size limit. Continuing...");
 
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
@@ -1499,9 +1509,6 @@ export default {
 			);
 		}
 
-		console.log(`File path and mime:`);
-		console.log(fileInfo);
-
 		// Write fileInfo to config for easy cleanup later
 		config.filePath = fileInfo.path;
 
@@ -1515,6 +1522,9 @@ export default {
 			{ file: fileInfo.path },
 			openai
 		);
+
+		// Test call
+		console.dir(fileInfo.whisper, { depth: null })
 
 		// Clean up the file from /tmp/
 		await this.cleanTmp();
@@ -1537,10 +1547,10 @@ export default {
 			? 5000
 			: 2750;
 
-		fileInfo.full_transcript = this.combineWhisperChunks(fileInfo.whisper);
+		fileInfo.full_transcript = await this.combineWhisperChunks(fileInfo.whisper);
 
 		if (this.disable_moderation_check !== true) {
-			await this.moderationCheck(fileInfo.full_transcript, openai)
+			await this.moderationCheck(fileInfo.full_transcript, openai);
 		}
 
 		const encodedTranscript = encode(fileInfo.full_transcript);
@@ -1563,7 +1573,7 @@ export default {
 		fileInfo.paragraphs = {
 			transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
 			summary: this.makeParagraphs(fileInfo.formatted_chat.summary, 1200),
-		}
+		};
 
 		fileInfo.cost = {};
 
@@ -1603,6 +1613,8 @@ export default {
 			notion,
 			fileInfo.notion_response
 		);
+
+		console.log(`All info successfully sent to Notion.`)
 
 		return fileInfo;
 	},
