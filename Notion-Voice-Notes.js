@@ -1,3 +1,7 @@
+/** To Do
+ * - Add error to the cleanTmp step so we can tell which area threw the error
+ */
+
 import { Client } from "@notionhq/client";
 import Bottleneck from "bottleneck";
 import OpenAI from "openai";
@@ -78,13 +82,13 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.1.3",
+	version: "0.1.5",
 	type: "action",
 	props: {
 		notion: {
 			type: "app",
 			app: "notion",
-			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is 100% free – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my development work, you can join **[The Automators' Club](https://thomasfrank.lemonsqueezy.com/checkout/buy/cf7f925f-1f2c-437d-ac15-ec248525a8a6)**, which is a $5/mo subscription that's totally optional.\n\nIf you'd like to support my work, consider subscribing!`,
+			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my development work, you can join **[The Automators' Club](https://thomasfrank.lemonsqueezy.com/checkout/buy/cf7f925f-1f2c-437d-ac15-ec248525a8a6)**, which is a $5/mo subscription that's totally optional.\n\nIf you'd like to support my work, consider subscribing!`,
 		},
 		openai: {
 			type: "app",
@@ -668,8 +672,6 @@ export default {
 				}
 
 				if (flagged === true) {
-					await this.cleanTmp();
-
 					console.log(
 						`Moderation check flagged innapropriate content in chunk ${index}.
 
@@ -680,6 +682,8 @@ export default {
 						Contents of moderation check:`
 					);
 					console.dir(moderationResponse, { depth: null });
+
+					await this.cleanTmp();
 
 					throw new Error(
 						`Detected inappropriate content in the transcript chunk. Summarization on this file cannot be completed.
@@ -1458,13 +1462,22 @@ export default {
 			);
 		},
 		async cleanTmp(cleanChunks = true) {
-			console.log(`Cleaning up the /tmp/ directory...`);
-			await fs.promises.unlink(config.filePath);
-			if (cleanChunks && config.chunkDir.length > 0) {
+			console.log(`Attempting to clean up the /tmp/ directory...`);
+			
+			// Check if filePath exists before we try to remove it
+			if (config.filePath && fs.existsSync(config.filePath)) {
+				await fs.promises.unlink(config.filePath);
+			} else {
+				console.log(`File ${config.filePath} does not exist.`);
+			}
+
+			// Check if chunkDir exists before we try to remove it
+			if (cleanChunks && config.chunkDir.length > 0 && fs.existsSync(config.chunkDir)) {
 				console.log(`Cleaning up ${config.chunkDir}...`);
 				await execAsync(`rm -rf "${config.chunkDir}"`);
+			} else {
+				console.log(`Directory ${config.chunkDir} does not exist.`)
 			}
-			console.log(`Cleanup complete.`);
 		},
 	},
 	async run({ steps, $ }) {
