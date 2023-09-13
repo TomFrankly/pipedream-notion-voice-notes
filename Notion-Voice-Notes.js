@@ -49,7 +49,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.3.6",
+	version: "0.4.0",
 	type: "action",
 	props: {
 		notion: {
@@ -66,6 +66,29 @@ export default {
 			type: "object",
 			label: "Previous Step Data (Set by Default)",
 			description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
+		},
+		summary_options: {
+			type: "string[]",
+			label: "Summary Options",
+			description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
+			options: [
+				"Summary",
+				"Main Points",
+				"Action Items",
+				"Follow-up Questions",
+				"Stories",
+				"References",
+				"Arguments",
+				"Related Topics",
+				"Sentiment",
+			],
+			default: [
+				"Summary",
+				"Main Points",
+				"Action Items",
+				"Follow-up Questions",
+			],
+			optional: false,
 		},
 		databaseID: {
 			type: "string",
@@ -137,29 +160,6 @@ export default {
 					};
 				}
 			},
-		},
-		summary_options: {
-			type: "string[]",
-			label: "Summary Options",
-			description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
-			options: [
-				"Summary",
-				"Main Points",
-				"Action Items",
-				"Follow-up Questions",
-				"Stories",
-				"References",
-				"Arguments",
-				"Related Topics",
-				"Sentiment",
-			],
-			default: [
-				"Summary",
-				"Main Points",
-				"Action Items",
-				"Follow-up Questions",
-			],
-			optional: false,
 			reloadProps: true,
 		},
 	},
@@ -610,33 +610,116 @@ export default {
 				console.log("Transcript combined successfully.");
 				return combinedText;
 			} catch (error) {
-
 				throw new Error(
 					`An error occurred while combining the transcript chunks: ${error.message}`
 				);
 			}
 		},
-		splitTranscript(encodedTranscript, maxTokens) {
+		findLongestPeriodGap(text, maxTokens) {
+			// Finds the longest gap between periods in the transcript.
+			// Used to determine if Whisper returned a transcript without periods, or with long run-ons.
+
+			let lastPeriodIndex = -1;
+			let longestGap = 0;
+			let longestGapText = "";
+
+			for (let i = 0; i < text.length; i++) {
+				if (text[i] === ".") {
+					if (lastPeriodIndex === -1) {
+						lastPeriodIndex = i;
+						continue;
+					}
+
+					let gap = i - lastPeriodIndex - 1;
+					let gapText = text.substring(lastPeriodIndex + 1, i);
+
+					if (gap > longestGap) {
+						longestGap = gap;
+						longestGapText = gapText;
+					}
+
+					lastPeriodIndex = i;
+				}
+			}
+
+			if (lastPeriodIndex === -1) {
+				return { longestGap: -1, longestGapText: "No period found" };
+			} else {
+				const encodedLongestGapText = encode(longestGapText);
+				return {
+					longestGap,
+					longestGapText,
+					maxTokens,
+					encodedGapLength: encodedLongestGapText.length,
+				};
+			}
+		},
+		splitTranscript(encodedTranscript, maxTokens, periodInfo) {
+			console.log(`Splitting transcript into chunks of ${maxTokens} tokens...`);
+
 			const stringsArray = [];
 			let currentIndex = 0;
+			let round = 0;
 
 			while (currentIndex < encodedTranscript.length) {
+				console.log(`Round ${round++} of transcript splitting...`);
+
 				let endIndex = Math.min(
 					currentIndex + maxTokens,
 					encodedTranscript.length
 				);
 
-				// Find the next period
-				while (
-					endIndex < encodedTranscript.length &&
-					decode([encodedTranscript[endIndex]]) !== "."
-				) {
-					endIndex++;
-				}
+				console.log(`Current endIndex: ${endIndex}`);
+				const nonPeriodEndIndex = endIndex;
 
-				// Include the period in the current string
-				if (endIndex < encodedTranscript.length) {
-					endIndex++;
+				// Check if the transcript contains periods
+				if (periodInfo.longestGap !== -1) {
+					let forwardEndIndex = endIndex;
+					let backwardEndIndex = endIndex;
+
+					let maxForwardEndIndex = 100;
+					let maxBackwardEndIndex = 100;
+
+					// Search forward for the next period
+					while (
+						forwardEndIndex < encodedTranscript.length &&
+						maxForwardEndIndex > 0 &&
+						decode([encodedTranscript[forwardEndIndex]]) !== "."
+					) {
+						forwardEndIndex++;
+						maxForwardEndIndex--;
+					}
+
+					// Search backward for the previous period
+					while (
+						backwardEndIndex > 0 &&
+						maxBackwardEndIndex > 0 &&
+						decode([encodedTranscript[backwardEndIndex]]) !== "."
+					) {
+						backwardEndIndex--;
+						maxBackwardEndIndex--;
+					}
+
+					// Determine with index is closer
+					if (
+						Math.abs(forwardEndIndex - nonPeriodEndIndex) <
+						Math.abs(backwardEndIndex - nonPeriodEndIndex)
+					) {
+						endIndex = forwardEndIndex;
+					} else {
+						endIndex = backwardEndIndex;
+					}
+
+					// Include the period in the current string
+					if (endIndex < encodedTranscript.length) {
+						endIndex++;
+					}
+
+					console.log(
+						`endIndex updated to ${endIndex} to keep sentences whole. Non-period endIndex was ${nonPeriodEndIndex}. Total added/removed tokens to account for this: ${
+							endIndex - nonPeriodEndIndex
+						}.`
+					);
 				}
 
 				// Add the current chunk to the stringsArray
@@ -675,7 +758,6 @@ export default {
 					`Moderation check completed successfully. No abusive content detected.`
 				);
 			} catch (error) {
-
 				throw new Error(
 					`An error occurred while performing a moderation check on the transcript: ${error.message}`
 				);
@@ -690,7 +772,6 @@ export default {
 				const flagged = moderationResponse.results[0].flagged;
 
 				if (flagged === undefined || flagged === null) {
-
 					throw new Error(
 						"Moderation check failed. Request to OpenAI's Moderation endpoint could not be completed."
 					);
@@ -718,7 +799,6 @@ export default {
 					);
 				}
 			} catch (error) {
-
 				throw new Error(
 					`An error occurred while performing a moderation check on chunk ${index}.
 					
@@ -1007,7 +1087,6 @@ export default {
 
 							// If no JSON object or array is found, throw an error
 							if (beginningIndex == Infinity || endingIndex == -1) {
-
 								throw new Error(
 									"No JSON object or array found (in repairJSON)."
 								);
@@ -1019,7 +1098,6 @@ export default {
 							jsonObj = JSON.parse(cleanedJsonString);
 							console.log(`2nd-stage JSON repair successful.`);
 						} catch (error) {
-
 							throw new Error(
 								`Recieved invalid JSON from ChatGPT. All JSON repair efforts failed. Recommended fix: Lower the ChatGPT model temperature and try uploading the file again.`
 							);
@@ -1153,14 +1231,12 @@ export default {
 		},
 		async calculateTranscriptCost(duration, model) {
 			if (!duration || typeof duration !== "number") {
-
 				throw new Error(
 					"Invalid duration number (thrown from calculateTranscriptCost)."
 				);
 			}
 
 			if (!model || typeof model !== "string") {
-
 				throw new Error(
 					"Invalid model string (thrown from calculateTranscriptCost)."
 				);
@@ -1353,11 +1429,9 @@ export default {
 				],
 			};
 
-			
-			const responseHolder = {}
-			
+			const responseHolder = {};
+
 			if (meta.long_summary) {
-				
 				// Add the Summary header
 				const summaryHeader = {
 					heading_1: {
@@ -1386,7 +1460,7 @@ export default {
 					summaryHolder.push(chunk);
 				}
 
-				responseHolder.summary = summaryHolder
+				responseHolder.summary = summaryHolder;
 			}
 
 			// Add the Transcript header
@@ -1601,7 +1675,13 @@ export default {
 			const summaryAdditionResponses = await Promise.all(
 				summaryArray.map((summary, index) =>
 					limiter.schedule(() =>
-						this.sendTranscripttoNotion(notion, summary, pageID, index, "Summary")
+						this.sendTranscripttoNotion(
+							notion,
+							summary,
+							pageID,
+							index,
+							"Summary"
+						)
 					)
 				)
 			);
@@ -1611,7 +1691,13 @@ export default {
 			const transcriptAdditionResponses = await Promise.all(
 				transcriptArray.map((transcript, index) =>
 					limiter.schedule(() =>
-						this.sendTranscripttoNotion(notion, transcript, pageID, index, "Transcript")
+						this.sendTranscripttoNotion(
+							notion,
+							transcript,
+							pageID,
+							index,
+							"Transcript"
+						)
 					)
 				)
 			);
@@ -1664,7 +1750,7 @@ export default {
 
 						data.children.push(transcriptHeader);
 					}
-					
+
 					for (let sentence of transcript) {
 						const paragraphBlock = {
 							paragraph: {
@@ -1751,6 +1837,22 @@ export default {
 		await this.checkSize(this.steps.trigger.event.size);
 		console.log("File is under the size limit. Continuing...");
 
+		// Log the user's chosen settings:
+		const logSettings = {
+			"Chat Model": this.chat_model,
+			"Summary Options": this.summary_options,
+			"Summary Density": this.summary_density,
+			Verbosity: this.verbosity,
+			"Temperature:": this.temperature,
+			"Audio File Chunk Size": this.chunk_size,
+			"Moderation Check": this.disable_moderation_check,
+			"Note Title Property": this.noteTitle,
+			"Note Tag Property": this.noteTag,
+			"Note Tag Value": this.noteTagValue,
+			"Note Duration Property": this.noteDuration,
+			"Note Cost Property": this.noteCost,
+		};
+
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
 		const fileInfo = {};
@@ -1816,6 +1918,8 @@ export default {
 			? "gpt-3.5-turbo-16k"
 			: "gpt-3.5-turbo";
 
+		console.log(`Using the ${chatModel} model.`);
+
 		const maxTokens = this.summary_density
 			? this.summary_density
 			: chatModel === "gpt-4-32k"
@@ -1826,9 +1930,23 @@ export default {
 			? 5000
 			: 2750;
 
+		console.log(`Max tokens per summary chunk: ${maxTokens}`);
+
 		fileInfo.full_transcript = await this.combineWhisperChunks(
 			fileInfo.whisper
 		);
+
+		fileInfo.longest_gap = this.findLongestPeriodGap(
+			fileInfo.full_transcript,
+			maxTokens
+		);
+		console.log(`Longest period gap info: ${JSON.stringify(fileInfo.longest_gap, null, 2)}`);
+
+		if (fileInfo.longest_gap.encodedGapLength > maxTokens) {
+			console.log(
+				`Longest sentence in the transcript exceeds the max per-chunk token length of ${maxTokens}. Transcript chunks will be split mid-sentence, potentially resulting in lower-quality summaries.`
+			);
+		}
 
 		if (this.disable_moderation_check !== true) {
 			await this.moderationCheck(fileInfo.full_transcript, openai);
@@ -1841,7 +1959,8 @@ export default {
 
 		fileInfo.transcript_chunks = this.splitTranscript(
 			encodedTranscript,
-			maxTokens
+			maxTokens,
+			fileInfo.longest_gap
 		);
 
 		// If user deselected all summary options, only send the first chunk to OpenAI just to get the title of the note
