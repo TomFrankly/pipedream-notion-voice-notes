@@ -49,7 +49,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.4.1",
+	version: "0.4.2",
 	type: "action",
 	props: {
 		notion: {
@@ -1587,7 +1587,7 @@ export default {
 				{
 					arr: meta.action_items,
 					header: "Potential Action Items",
-					itemType: "bulleted_list_item", // changed from to_do due Notion API unsaved transactions bug
+					itemType: "to_do",
 				},
 				{
 					arr: meta.follow_up,
