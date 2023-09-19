@@ -49,7 +49,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.4.2",
+	version: "0.4.5",
 	type: "action",
 	props: {
 		notion: {
@@ -1867,11 +1867,11 @@ export default {
 				);
 			}
 		} else if (
-			this.steps.download_file?.$return_value &&
-			/^\/tmp\/.+/.test(steps.download_file.$return_value)
+			this.steps.ms_onedrive_download?.$return_value &&
+			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.path = this.steps.download_file.$return_value;
+			fileInfo.path = this.steps.ms_onedrive_download.$return_value;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
 				throw new Error(
