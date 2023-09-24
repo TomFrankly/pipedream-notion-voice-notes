@@ -59,10 +59,13 @@ My [Creator's Companion](https://thomasjfrank.com/creators-companion/) template 
 
 This workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*
 
-If you want to support my development work, you can join **[The Automators' Club](https://thomasfrank.lemonsqueezy.com/checkout/buy/cf7f925f-1f2c-437d-ac15-ec248525a8a6)**, which is a $5/mo subscription that's totally optional.
+If you want to support my work, the best way to do so is buying one of my premium Notion Templates:
 
-If you'd like to support my work, consider subscribing!
+* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion
+* [Creator's Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently
+
+Beyond that, sharing this automation's YouTube tutorial online or with friends is also helpful!
 
 ## Copyright
 
-*I've made the code for this workflow public, so you can study it, use it as a learning tool, or modify it for **private, perosnal use**. Redistributing it, modified or unmodified, for free or paid, is not permitted. Well over 150 hours of work went into this project; please respect that!*
+*I've made the code for this workflow public, so you can study it, use it as a learning tool, or modify it for **private, perosnal use**. Redistributing it, modified or unmodified, for free or paid, is not permitted.*

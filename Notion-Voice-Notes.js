@@ -14,6 +14,7 @@ import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import natural from "natural";
 import retry from "async-retry";
 import { jsonrepair } from "jsonrepair";
+import lang from "helpers/lang.js";
 
 const execAsync = promisify(exec);
 
@@ -49,13 +50,13 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.5.3",
+	version: "0.5.5",
 	type: "action",
 	props: {
 		notion: {
 			type: "app",
 			app: "notion",
-			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my development work, you can join **[The Automators' Club](https://thomasfrank.lemonsqueezy.com/checkout/buy/cf7f925f-1f2c-437d-ac15-ec248525a8a6)**, which is a $5/mo subscription that's totally optional.\n\nIf you'd like to support my work, consider subscribing!`,
+			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
 		},
 		openai: {
 			type: "app",
@@ -272,6 +273,17 @@ export default {
 				optional: true,
 				reloadProps: true,
 			},
+			transcript_language: {
+				type: "string",
+				label: "Transcript Language (Optional)",
+				description: `Select the language of your audio file. This will help Whisper transcribe your file more accurately.\n\nIf you don't know the language of your file, you can leave this blank, and Whisper will attempt to detect the language.`,
+				optional: true,
+				options: lang.LANGUAGES.map((lang) => ({
+					label: lang.label,
+					value: lang.value,
+				})),
+				reloadProps: true,
+			},
 			advanced_options: {
 				type: "boolean",
 				label: "Enable Advanced Options",
@@ -305,6 +317,18 @@ export default {
 					options: ["High", "Medium", "Low"],
 					optional: true,
 				},
+				...(this.transcript_language && {
+					summary_language: {
+						type: "string",
+						label: "Summary Language (Advanced)",
+						description: `Specify a language for the summary content. This will tell ChatGPT to attempt to summarize the transcript in your selected language.\n\nIf you leave this blank, ChatGPT will be instructed to use the same language as the transcript.`,
+						optional: true,
+						options: lang.LANGUAGES.map((lang) => ({
+							label: lang.label,
+							value: lang.value,
+						})),
+					},
+				}),
 				temperature: {
 					type: "integer",
 					label: "Model Temperature",
@@ -348,6 +372,21 @@ export default {
 				);
 			}
 		},
+		setLanguages() {
+			if (this.transcript_language) {
+				console.log(`User set transcript language to ${this.transcript_language}.`)
+				config.transcriptLanguage = this.transcript_language;
+			}
+
+			if (this.summary_language) {
+				console.log(`User set summary language to ${this.summary_language}.`)
+				config.summaryLanguage = this.summary_language;
+			}
+
+			if (!this.transcript_language && !this.summary_language) {
+				console.log(`No language set. Whisper will attempt to detect the language.`);
+			}
+		},
 		async downloadToTmp(fileLink, filePath, fileSize) {
 			try {
 				// Define the mimetype
@@ -387,7 +426,7 @@ export default {
 					dataPack = await parseFile(filePath);
 				} catch (error) {
 					throw new Error(
-						"Failed to read audio file metadata. The file format might be unsupported or corrupted, or the file might no longer exist at the specified file path (which is in temp storage)."
+						"Failed to read audio file metadata. The file format might be unsupported or corrupted, or the file might no longer exist at the specified file path (which is in temp storage). If you are using the Google Drive or OneDrive versions of this workflow and are currently setting it up, please try testing your 'download' step again in order to re-download the file into temp storage. Then test this step again. Learn more here: https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/#error-failed-to-read-audio-file-metadata"
 					);
 				}
 
@@ -510,6 +549,9 @@ export default {
 							.create(
 								{
 									model: "whisper-1",
+									...(config.transcriptLanguage && config.transcriptLanguage !== "" && {
+										language: config.transcriptLanguage,
+									}),
 									file: readStream,
 								},
 								{
@@ -878,7 +920,9 @@ export default {
 				);
 			}
 
-			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON. If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker".
+			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON. All JSON keys must be in English, even if you write the values in another language. If the transcript is in another language, still write the JSON keys in English, using the exact key names in these instructions.
+			
+			If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker".
 			
 			Analyze the transcript provided, then provide the following:
 			
@@ -950,7 +994,18 @@ export default {
 				}
 			}
 
+			let languageSetter = `Write all requested JSON keys in English, exactly as instructed in these system instructions.`
+			if (this.transcript_language && this.transcript_language !== "") {
+				if (this.summary_language && this.summary_language !== "") {
+					languageSetter += ` Write all values in the the following language: ${this.summary_language}– even if the transcript's language is different.`
+				} else {
+					languageSetter += ` Write all values in the same language as the transcript.`
+				}
+			}
+			
 			prompt.lock = `If the transcript contains nothing that fits a requested key, include a single array item for that key that says "Nothing found for this summary list type."
+
+			${languageSetter}
 			
 			Ensure that the final element of any array within the JSON object is not followed by a comma.
 		
@@ -969,7 +1024,7 @@ export default {
 			if ("main_points" in prompt) {
 				exampleObject.main_points = ["item 1", "item 2", "item 3"];
 			}
-			
+
 			if ("action_items" in prompt) {
 				exampleObject.action_items = ["item 1", "item 2", "item 3"];
 			}
@@ -998,7 +1053,7 @@ export default {
 				exampleObject.sentiment = "positive";
 			}
 
-			prompt.example = `Here is example formatting, which contains example keys for all the requested summary elements and lists. Be sure to include all the keys and values that you are instructed to include above. Example formatting: ${JSON.stringify(
+			prompt.example = `Here is example formatting, which contains example keys for all the requested summary elements and lists. Be sure to include all the keys and values that you are instructed to include above. Be sure to write all key names in English, exactly as instructed in these system instructions, even if you write the values in another language. Example formatting: ${JSON.stringify(
 				exampleObject,
 				null,
 				2
@@ -1789,6 +1844,9 @@ export default {
 		await this.checkSize(this.steps.trigger.event.size);
 		console.log("File is under the size limit. Continuing...");
 
+		console.log("Checking if the user set languages...")
+		this.setLanguages()
+
 		// Log the user's chosen settings:
 		const logSettings = {
 			"Chat Model": this.chat_model,
@@ -1803,6 +1861,8 @@ export default {
 			"Note Tag Value": this.noteTagValue,
 			"Note Duration Property": this.noteDuration,
 			"Note Cost Property": this.noteCost,
+			"Transcript Language": this.transcript_language ?? "No language set.",
+			"Summary Language": this.summary_language ?? "No language set.",
 		};
 
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
