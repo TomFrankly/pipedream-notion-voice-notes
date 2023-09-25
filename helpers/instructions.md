@@ -15,7 +15,7 @@ It also creates useful lists from the transcript, including:
 
 ## Compatibility
 
-This workflow will work with any Notion database. It is currently configured to support **Dropbox** for audio file uploads. More cloud storage providers are coming in future releases.
+This workflow will work with any Notion database.
 
 ### Upgrade Your Notion Experience
 
@@ -28,8 +28,6 @@ Ultimate Brain brings tasks, notes, projects, and goals all into one tool. Natur
 **Are you a creator?** 
 
 My [Creator's Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There's even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.
-
-*P.S. – This free workflow took hundreds of hours to build. If you'd like to support my work, buying one of my templates is the best way to do so!*
 
 ## Instructions
 
@@ -50,3 +48,13 @@ My [Creator's Companion](https://thomasjfrank.com/creators-companion/) template 
 
 * [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)
 
+## Support My Work
+
+This workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*
+
+If you want to support my work, the best way to do so is buying one of my premium Notion Templates:
+
+* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion
+* [Creator's Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently
+
+Beyond that, sharing this automation's YouTube tutorial online or with friends is also helpful!
