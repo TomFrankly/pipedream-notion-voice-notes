@@ -53,7 +53,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.6.6",
+	version: "0.6.8",
 	type: "action",
 	props: {
 		notion: {
@@ -1631,7 +1631,8 @@ export default {
 			if (
 				!this.translate_transcript ||
 				this.translate_transcript.includes("Keep Original") ||
-				this.translate_transcript.includes("Don't Translate")
+				this.translate_transcript.includes("Don't Translate") ||
+				!page.translation
 			) {
 				const transcriptArray = page.transcript;
 				const transcriptAdditionResponses = await Promise.all(

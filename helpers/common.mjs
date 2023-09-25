@@ -1,4 +1,5 @@
 import { jsonrepair } from "jsonrepair";
+import { Client } from "@notionhq/client";
 
 export default {
     props: {
