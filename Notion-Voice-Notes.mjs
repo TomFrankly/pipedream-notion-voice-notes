@@ -2008,7 +2008,8 @@ export default {
 					fileInfo.paragraphs.transcript,
 					fileInfo.language.summary
 				);
-
+				
+				// To Do: run through makeParagraphs
 				fileInfo.paragraphs.translated_transcript = translatedTranscript.paragraphs;
 				fileInfo.cost.translated_transcript = await this.calculateGPTCost(
 					translatedTranscript.usage,
