@@ -1,3 +1,9 @@
+/**
+ * Changes:
+ * 
+ * - Fixed languagePrefix bug; it no longer prints "undefined" in the system message.
+ */
+
 import { Client } from "@notionhq/client";
 import Bottleneck from "bottleneck";
 import OpenAI from "openai";
@@ -812,7 +818,7 @@ export default {
 				languagePrefix = ` You will write your summary in ${language.label} (ISO 639-1 code: "${language.value}").`
 			}
 
-			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON.${languagePrefix}
+			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON.${languagePrefix ? languagePrefix : ''}
 			
 			If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker".
 			
