@@ -28,9 +28,9 @@ export default {
         disable_moderation_check: {
             type: "boolean",
             label: "Disable Moderation Check",
-            description: `By default, this workflow will check your transcript for inappropriate content using OpenAI's Moderation API. Moderation checks are free. If you'd like to disable this check, set this option to **true**. Note that disabling the check may result in the suspension of your OpenAI account if you send inappropriate content to the API. Refer to the [OpenAI Terms](https://openai.com/policies/terms-of-use) for more information.`,
+            description: `By default, this workflow will **not** check your transcript for inappropriate content using OpenAI's Moderation API. If you'd like to enable this check, set this option to **false**.\n\nThis option may be subject to low rate limits within your OpenAI account, which is why it is disabled by default. You can check your current rate limits by visiting your account's [rate limits page](https://platform.openai.com/account/rate-limits) and checking the limit for the **text-moderation-stable** endpoint.`,
             optional: true,
-            default: false,
+            default: true,
         }
     }
 }

@@ -1,6 +1,6 @@
 /**
  * Changes:
- * 
+ *
  * - Fixed languagePrefix bug; it no longer prints "undefined" in the system message.
  */
 
@@ -52,6 +52,7 @@ const rates = {
 const config = {
 	filePath: "",
 	chunkDir: "",
+	supportedMimes: [".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"],
 };
 
 export default {
@@ -59,7 +60,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.6.8",
+	version: "0.7.0",
 	type: "action",
 	props: {
 		notion: {
@@ -247,10 +248,15 @@ export default {
 		return props;
 	},
 	methods: {
+		...common.methods,
 		async checkSize(fileSize) {
-			if (fileSize > 300000000) {
+			if (fileSize > 200000000) {
 				throw new Error(
-					"File is too large. Files must be mp3 or m4a files under 300mb."
+					`File is too large. Files must be under 200mb and one of the following file types: ${config.supportedMimes.join(
+						", "
+					)}.
+					
+					Note: If you upload a particularly large file and get an Out of Memory error, try setting your workflow's RAM setting higher. Learn how to do this here: https://pipedream.com/docs/workflows/settings/#memory`
 				);
 			} else {
 				// Log file size in mb to nearest hundredth
@@ -284,7 +290,7 @@ export default {
 				const mime = filePath.match(/\.\w+$/)[0];
 
 				// Check if the mime type is supported (mp3 or m4a)
-				if (mime !== ".mp3" && mime !== ".m4a") {
+				if (config.supportedMimes.includes(mime) === false) {
 					throw new Error(
 						"Unsupported file type. Only mp3 and m4a files are supported."
 					);
@@ -366,8 +372,26 @@ export default {
 			} catch (error) {
 				await this.cleanTmp();
 
+				let errorText;
+
+				if (/connection error/i.test(error.message)) {
+					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
+					
+					If the full error below says "Unidentified connection error", please double-check that you have entered valid billing info in your OpenAI account. Afterward, generate a new API key and enter it in the OpenAI app here in Pipedream. Then, try running the workflow again.
+					
+					If that does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`
+				} else if (/Invalid file format/i.test(error.message)) {
+					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
+
+					Note: OpenAI officially supports .m4a files, but some apps create .m4a files that OpenAI can't read. If you're using an .m4a file, try converting it to .mp3 and running the workflow again.`
+				} else {
+					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.`
+				}
+				
 				throw new Error(
-					`An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI: ${error.message}`
+					`${errorText}
+					
+					Full error from OpenAI: ${error.message}`
 				);
 			}
 		},
@@ -662,7 +686,9 @@ export default {
 				);
 			} catch (error) {
 				throw new Error(
-					`An error occurred while performing a moderation check on the transcript: ${error.message}`
+					`An error occurred while performing a moderation check on the transcript: ${error.message}
+					
+					Note that you can set Enable Advanced Settings to True, and then set Disable Moderation Check to True, to skip the moderation check. This will speed up the workflow run, but it will also increase the risk of inappropriate content being sent to ChatGPT.`
 				);
 			}
 		},
@@ -676,7 +702,9 @@ export default {
 
 				if (flagged === undefined || flagged === null) {
 					throw new Error(
-						"Moderation check failed. Request to OpenAI's Moderation endpoint could not be completed."
+						`Moderation check failed. Request to OpenAI's Moderation endpoint could not be completed.
+						
+						Note that you can set Enable Advanced Settings to True, and then set Disable Moderation Check to True, to skip the moderation check. This will speed up the workflow run, but it will also increase the risk of inappropriate content being sent to ChatGPT.`
 					);
 				}
 
@@ -698,6 +726,8 @@ export default {
 						The content of this chunk is as follows:
 					
 						${chunk}
+
+						Note that you can set Enable Advanced Settings to True, and then set Disable Moderation Check to True, to skip the moderation check. This will speed up the workflow run, but it will also increase the risk of inappropriate content being sent to ChatGPT.
 						`
 					);
 				}
@@ -711,7 +741,9 @@ export default {
 					
 					Error message:
 					
-					${error.message}`
+					${error.message}
+					
+					Note that you can set Enable Advanced Settings to True, and then set Disable Moderation Check to True, to skip the moderation check. This will speed up the workflow run, but it will also increase the risk of inappropriate content being sent to ChatGPT.`
 				);
 			}
 		},
@@ -797,11 +829,11 @@ export default {
 				);
 			}
 
-			let language
+			let language;
 			if (this.summary_language && this.summary_language !== "") {
-				language = lang.LANGUAGES.find((l) => l.value === this.summary_language)
+				language = lang.LANGUAGES.find((l) => l.value === this.summary_language);
 			}
-			
+
 			let languageSetter = `Write all requested JSON keys in English, exactly as instructed in these system instructions.`;
 
 			if (this.summary_language && this.summary_language !== "") {
@@ -812,13 +844,15 @@ export default {
 				languageSetter += ` Write all values in the same language as the transcript.`;
 			}
 
-			let languagePrefix
+			let languagePrefix;
 
 			if (this.summary_language && this.summary_language !== "") {
-				languagePrefix = ` You will write your summary in ${language.label} (ISO 639-1 code: "${language.value}").`
+				languagePrefix = ` You will write your summary in ${language.label} (ISO 639-1 code: "${language.value}").`;
 			}
 
-			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON.${languagePrefix ? languagePrefix : ''}
+			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON.${
+				languagePrefix ? languagePrefix : ""
+			}
 			
 			If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker".
 			
@@ -972,60 +1006,32 @@ export default {
 			const resultsArray = [];
 			console.log(`Formatting the ChatGPT results...`);
 			for (let result of summaryArray) {
-				const input = result.choices[0].message.content;
-				let jsonObj;
-				try {
-					jsonObj = JSON.parse(input);
-				} catch (error) {
-					try {
-						console.log(`Encountered an error: ${error}. Attempting JSON repair...`);
-						const cleanedJsonString = jsonrepair(input);
-						jsonObj = JSON.parse(cleanedJsonString);
-						console.log(`JSON repair successful.`);
-					} catch (error) {
-						console.log(
-							`First JSON repair attempt failed with error: ${error}. Attempting more involved JSON repair...`
-						);
-						try {
-							const beginningIndex = Math.min(
-								input.indexOf("{") !== -1 ? input.indexOf("{") : Infinity,
-								input.indexOf("[") !== -1 ? input.indexOf("[") : Infinity
-							);
-							const endingIndex = Math.max(
-								input.lastIndexOf("}") !== -1 ? input.lastIndexOf("}") : -Infinity,
-								input.lastIndexOf("]") !== -1 ? input.lastIndexOf("]") : -Infinity
-							);
-
-							if (beginningIndex == Infinity || endingIndex == -1) {
-								throw new Error("No JSON object or array found (in repairJSON).");
-							}
-
-							const cleanedJsonString = jsonrepair(
-								input.substring(beginningIndex, endingIndex + 1)
-							);
-							jsonObj = JSON.parse(cleanedJsonString);
-							console.log(`2nd-stage JSON repair successful.`);
-						} catch (error) {
-							throw new Error(
-								`Recieved invalid JSON from ChatGPT. All JSON repair efforts failed. Recommended fix: Lower the ChatGPT model temperature and try uploading the file again.`
-							);
-						}
-					}
-				}
 
 				const response = {
-					choice: jsonObj,
+					choice: this.repairJSON(result.choices[0].message.content),
 					usage: !result.usage.total_tokens ? 0 : result.usage.total_tokens,
 				};
 
 				resultsArray.push(response);
 			}
 
-			const chatResponse = {
-				title: resultsArray[0].choice.title,
-				...(this.summary_options.includes("Sentiment") && {
-					sentiment: resultsArray[0].choice.sentiment,
-				}),
+			let chatResponse = resultsArray.reduce((acc, curr) => {
+				if (!curr.choice) return acc;
+
+				acc.summary.push(curr.choice.summary || []);
+				acc.main_points.push(curr.choice.main_points || []);
+				acc.action_items.push(curr.choice.action_items || []);
+				acc.stories.push(curr.choice.stories || []);
+				acc.references.push(curr.choice.references || []);
+				acc.arguments.push(curr.choice.arguments || []);
+				acc.follow_up.push(curr.choice.follow_up || []);
+				acc.related_topics.push(curr.choice.related_topics || []);
+				acc.usageArray.push(curr.usage || 0);
+
+				return acc;
+			}, {
+				title: resultsArray[0]?.choice?.title,
+				sentiment: this.summary_options.includes("Sentiment") ? resultsArray[0]?.choice?.sentiment : undefined,
 				summary: [],
 				main_points: [],
 				action_items: [],
@@ -1035,19 +1041,10 @@ export default {
 				follow_up: [],
 				related_topics: [],
 				usageArray: [],
-			};
+			})
 
-			for (let arr of resultsArray) {
-				chatResponse.summary.push(arr.choice.summary);
-				chatResponse.main_points.push(arr.choice.main_points);
-				chatResponse.action_items.push(arr.choice.action_items);
-				chatResponse.stories.push(arr.choice.stories);
-				chatResponse.references.push(arr.choice.references);
-				chatResponse.arguments.push(arr.choice.arguments);
-				chatResponse.follow_up.push(arr.choice.follow_up);
-				chatResponse.related_topics.push(arr.choice.related_topics);
-				chatResponse.usageArray.push(arr.usage);
-			}
+			console.log(`ChatResponse object after ChatGPT items have been inserted:`)
+			console.dir(chatResponse, { depth: null });
 
 			function arraySum(arr) {
 				const init = 0;
@@ -1058,6 +1055,21 @@ export default {
 				return sum;
 			}
 
+			console.log(`Filtering Related Topics, if any exist:`)
+			let filtered_related_topics = chatResponse.related_topics.flat().filter(
+				(item) => item !== undefined && item !== null && item !== ""
+			)
+
+			let filtered_related_set;
+
+			if (filtered_related_topics.length > 1) {
+				filtered_related_set = Array.from(
+					new Set(
+						filtered_related_topics.map((item) => item.toLowerCase())
+					)
+				)
+			}
+			
 			const finalChatResponse = {
 				title: chatResponse.title,
 				summary: chatResponse.summary.join(" "),
@@ -1071,15 +1083,14 @@ export default {
 				arguments: chatResponse.arguments.flat(),
 				follow_up: chatResponse.follow_up.flat(),
 				...(this.summary_options.includes("Related Topics") &&
-					chatResponse.related_topics.length > 1 && {
-						related_topics: Array.from(
-							new Set(
-								chatResponse.related_topics.flat().map((item) => item.toLowerCase())
-							)
-						).sort(),
+					filtered_related_set.length > 1 && {
+						related_topics: filtered_related_set.sort(),
 					}),
 				tokens: arraySum(chatResponse.usageArray),
 			};
+
+			console.log(`Final ChatResponse object:`)
+			console.dir(finalChatResponse, { depth: null });
 
 			return finalChatResponse;
 		},
@@ -1400,7 +1411,7 @@ export default {
 				paragraphs.translated_transcript &&
 				paragraphs.translated_transcript.length > 0
 			) {
-				const translationHeader = `Translated Transcript (${language.summary.label})`
+				const translationHeader = `Translated Transcript (${language.summary.label})`;
 
 				responseHolder.translation_header = translationHeader;
 
@@ -1608,7 +1619,8 @@ export default {
 								summary,
 								pageID,
 								index,
-								page.summary_header
+								page.summary_header,
+								"summary"
 							)
 						)
 					)
@@ -1626,7 +1638,8 @@ export default {
 								translation,
 								pageID,
 								index,
-								page.translation_header
+								page.translation_header,
+								"translation"
 							)
 						)
 					)
@@ -1649,7 +1662,8 @@ export default {
 								transcript,
 								pageID,
 								index,
-								page.transcript_header
+								page.transcript_header,
+								"transcript"
 							)
 						)
 					)
@@ -1680,7 +1694,14 @@ export default {
 
 			return allAPIResponses;
 		},
-		async sendTranscripttoNotion(notion, transcript, pageID, index, title) {
+		async sendTranscripttoNotion(
+			notion,
+			transcript,
+			pageID,
+			index,
+			title,
+			logValue
+		) {
 			return retry(
 				async (bail, attempt) => {
 					const data = {
@@ -1721,7 +1742,7 @@ export default {
 					}
 
 					console.log(
-						`Attempt ${attempt}: Sending transcript chunk ${index} to Notion...`
+						`Attempt ${attempt}: Sending ${logValue} chunk ${index} to Notion...`
 					);
 					const response = await notion.blocks.children.append(data);
 					return response;
@@ -1730,7 +1751,7 @@ export default {
 					retries: 3,
 					onRetry: (error, attempt) =>
 						console.log(
-							`Retrying Notion transcript addition (attempt ${attempt}):`,
+							`Retrying Notion ${logValue} addition (attempt ${attempt}):`,
 							error
 						),
 				}
@@ -1784,6 +1805,15 @@ export default {
 		},
 	},
 	async run({ steps, $ }) {
+		const fileID = this.steps.trigger.event.id;
+		const testEventId = "52776A9ACB4F8C54!134";
+
+		if (fileID === testEventId) {
+			throw new Error(
+				`Oops, this workflow won't work if you use the **Generate Test Event** button in the Trigger step. Please upload an audio file (mp3 or m4a) to Dropbox, select it from the Select Event dropdown *beneath* that button, then hit Test again on the Trigger step.`
+			);
+		}
+
 		console.log("Checking that file is under 300mb...");
 		await this.checkSize(this.steps.trigger.event.size);
 		console.log("File is under the size limit. Continuing...");
@@ -1816,18 +1846,22 @@ export default {
 			// Google Drive method
 			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
-			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
+			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
-					"Unsupported file type. Only mp3 and m4a files are supported."
+					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
+						", "
+					)}.`
 				);
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
 			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
-			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
+			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
-					"Unsupported file type. Only mp3 and m4a files are supported."
+					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
+						", "
+					)}.`
 				);
 			}
 		} else if (
@@ -1837,9 +1871,11 @@ export default {
 			// MS OneDrive method
 			fileInfo.path = this.steps.ms_onedrive_download.$return_value;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
-			if (fileInfo.mime !== ".mp3" && fileInfo.mime !== ".m4a") {
+			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
-					"Unsupported file type. Only mp3 and m4a files are supported."
+					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
+						", "
+					)}.`
 				);
 			}
 		} else {
@@ -1931,6 +1967,8 @@ export default {
 			fileInfo.summary = await this.sendToChat(openai, fileInfo.transcript_chunks);
 		}
 
+		console.log("Summary array from ChatGPT:");
+		console.dir(fileInfo.summary, { depth: null });
 		fileInfo.formatted_chat = await this.formatChat(fileInfo.summary);
 
 		fileInfo.paragraphs = {
@@ -2014,9 +2052,12 @@ export default {
 					fileInfo.paragraphs.transcript,
 					fileInfo.language.summary
 				);
-				
+
 				// To Do: run through makeParagraphs
-				fileInfo.paragraphs.translated_transcript = translatedTranscript.paragraphs;
+				fileInfo.paragraphs.translated_transcript = this.makeParagraphs(
+					translatedTranscript.paragraphs.join(" "),
+					1200
+				);
 				fileInfo.cost.translated_transcript = await this.calculateGPTCost(
 					translatedTranscript.usage,
 					translatedTranscript.model,

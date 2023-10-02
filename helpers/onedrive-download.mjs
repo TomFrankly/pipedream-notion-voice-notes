@@ -9,7 +9,7 @@ export default {
     name: "Microsoft OneDrive – File Download",
     description: "Downloads a file from Microsoft OneDrive (using a stream) and saves it to /tmp/.",
     key: "ms-onedrive-download",
-    version: "0.0.1",
+    version: "0.0.2",
     type: "action",
 	props: {
 		microsoft_onedrive: {
@@ -30,6 +30,12 @@ export default {
 			const fileID = this.steps.trigger.event.id;
 			const fileSize = this.steps.trigger.event.size;
 			const fileName = this.steps.trigger.event.name;
+
+			const testEventId = "52776A9ACB4F8C54!134"
+
+			if (fileID === testEventId) {
+				throw new Error(`Oops, this workflow won't work if you use the **Generate Test Event** button in the Trigger step. Please upload an audio file (mp3 or m4a) to OneDrive, select it from the Select Event dropdown *beneath* that button, then hit Test again on the Trigger step.`)
+			}
 
 			if (!fileID || !fileName) {
 				throw new Error("File ID or File Name is missing");

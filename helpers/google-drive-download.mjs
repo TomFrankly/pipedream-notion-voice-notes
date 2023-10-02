@@ -8,7 +8,7 @@ export default {
 	description:
 		"Downloads a file from Google Drive (using a stream) and saves it to /tmp/.",
 	key: "google-drive-download",
-	version: "0.0.2",
+	version: "0.0.3",
 	type: "action",
 	props: {
 		googleDrive,
@@ -28,6 +28,12 @@ export default {
 			const fileSize = this.steps.trigger.event.size;
 			const fileName = this.steps.trigger.event.name;
 
+			const testEventId = "2RPkE7njiIV5RaUYbaHXSi6xhTrkTKBFE"
+
+			if (fileID === testEventId) {
+				throw new Error(`Oops, this workflow won't work if you use the **Generate Test Event** button in the Trigger step. Please upload an audio file (mp3 or m4a) to Google Drive, select it from the Select Event dropdown *beneath* that button, then hit Test again on the Trigger step.`)
+			}
+			
 			if (!fileID || !fileName) {
 				throw new Error("File ID or File Name is missing");
 			}
