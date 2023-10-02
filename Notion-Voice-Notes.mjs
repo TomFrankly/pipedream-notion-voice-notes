@@ -1,9 +1,3 @@
-/**
- * Changes:
- *
- * - Fixed languagePrefix bug; it no longer prints "undefined" in the system message.
- */
-
 import { Client } from "@notionhq/client";
 import Bottleneck from "bottleneck";
 import OpenAI from "openai";
