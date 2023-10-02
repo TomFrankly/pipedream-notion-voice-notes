@@ -8,7 +8,7 @@ It also can create useful lists from the transcript, including:
 * Potential rebuttals
 * More!
 
-To use it, simply set up and deploy the workflow in Pipedream using the one-click links in section below, then upload mp3 or m4a files to your configured cloud storage folder.
+To use it, simply set up and deploy the workflow in Pipedream using the one-click links in the section below, then upload mp3 or m4a files to your configured cloud storage folder.
 
 **Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**
 
@@ -68,4 +68,4 @@ Beyond that, sharing this automation's YouTube tutorial online or with friends i
 
 ## Copyright
 
-*I've made the code for this workflow public, so you can study it, use it as a learning tool, or modify it for **private, perosnal use**. Redistributing it, modified or unmodified, for free or paid, is not permitted.*
+*I've made the code for this workflow public, so you can study it, use it as a learning tool, or modify it for **private, personal use**. Redistributing it, modified or unmodified, for free or paid, is not permitted.*
