@@ -18,6 +18,7 @@ import lang from "./helpers/languages.mjs";
 import common from "./helpers/common.mjs";
 import translation from "./helpers/translate-transcript.mjs";
 import openaiOptions from "./helpers/openai-options.mjs";
+import {franc, francAll} from 'franc'
 
 const execAsync = promisify(exec);
 
@@ -54,7 +55,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.0",
+	version: "0.7.1",
 	type: "action",
 	props: {
 		notion: {
@@ -1089,55 +1090,82 @@ export default {
 			return finalChatResponse;
 		},
 		makeParagraphs(transcript, maxLength = 1200) {
-			const tokenizer = new natural.SentenceTokenizer();
-			const transcriptSentences = tokenizer.tokenize(transcript);
-
-			const sentencesPerParagraph = 4;
-
+	
+			const languageCode = franc(transcript);
+			console.log(`Detected language with franc library: ${languageCode}`);
+		
+			let transcriptSentences;
+			let sentencesPerParagraph;
+		
+			if (languageCode === "cmn" || languageCode === "und") {
+				console.log(`Detected language is Chinese or undetermined, splitting by punctuation...`);
+				transcriptSentences = transcript
+					.split(/[\u3002\uff1f\uff01\uff1b\uff1a\u201c\u201d\u2018\u2019]/)
+					.filter(Boolean);
+				sentencesPerParagraph = 3
+			} else {
+				console.log(`Detected language is not Chinese, splitting by sentence tokenizer...`);
+				const tokenizer = new natural.SentenceTokenizer();
+				transcriptSentences = tokenizer.tokenize(transcript);
+				sentencesPerParagraph = 4
+			}
+		
 			function sentenceGrouper(arr, sentencesPerParagraph) {
 				const newArray = [];
-
+		
 				for (let i = 0; i < arr.length; i += sentencesPerParagraph) {
-					const group = [];
-					for (let j = i; j < i + sentencesPerParagraph; j++) {
-						if (arr[j]) {
-							group.push(arr[j]);
-						}
-					}
-
-					newArray.push(group.join(" "));
+					newArray.push(arr.slice(i, i + sentencesPerParagraph).join(" "));
 				}
-
+		
 				return newArray;
 			}
-
+		
 			function charMaxChecker(arr, maxSize) {
-				const sentenceArray = arr
+				const hardLimit = 1800;
+		
+				return arr
 					.map((element) => {
-						if (element.length > maxSize) {
-							const regex = new RegExp(`.{${maxSize}}[^\s]*\s*`, "g");
-							const pieces = element.match(regex);
-							if (element.length > pieces.join("").length) {
-								pieces.push(element.slice(pieces.join("").length));
+						let chunks = [];
+						let currentIndex = 0;
+		
+						while (currentIndex < element.length) {
+							
+							let nextCutIndex = Math.min(currentIndex + maxSize, element.length);
+		
+							let nextSpaceIndex = element.indexOf(" ", nextCutIndex);
+		
+							if (nextSpaceIndex === -1 || nextSpaceIndex - currentIndex > hardLimit) {
+								console.log(`No space found or hard limit reached in element, splitting at ${nextCutIndex}.
+								
+								Transcript chunk is as follows: ${element}`);
+								nextSpaceIndex = nextCutIndex;
 							}
-							return pieces;
-						} else {
-							return element;
+		
+							while (nextSpaceIndex > 0 && isHighSurrogate(element.charCodeAt(nextSpaceIndex - 1))) {
+								nextSpaceIndex--;
+							}
+		
+							chunks.push(element.substring(currentIndex, nextSpaceIndex));
+		
+							currentIndex = nextSpaceIndex + 1;
 						}
+		
+						return chunks;
 					})
 					.flat();
-
-				return sentenceArray;
 			}
-
+		
+			function isHighSurrogate(charCode) {
+				return charCode >= 0xd800 && charCode <= 0xdbff;
+			}
+		
 			console.log(`Converting the transcript to paragraphs...`);
-			const paragraphs = sentenceGrouper(
-				transcriptSentences,
-				sentencesPerParagraph
-			);
+			console.log(`Number of sentences before paragraph grouping: ${transcriptSentences.length}`)
+			const paragraphs = sentenceGrouper(transcriptSentences, sentencesPerParagraph);
+			console.log(`Number of paragraphs after grouping: ${paragraphs.length}`)
 			console.log(`Limiting paragraphs to ${maxLength} characters...`);
 			const lengthCheckedParagraphs = charMaxChecker(paragraphs, maxLength);
-
+		
 			return lengthCheckedParagraphs;
 		},
 		async calculateTranscriptCost(duration, model) {
