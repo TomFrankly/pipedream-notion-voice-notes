@@ -39,6 +39,14 @@ const rates = {
 		prompt: 0.06,
 		completion: 0.12,
 	},
+	"gpt-4-1106-preview": {
+		prompt: 0.01,
+		completion: 0.03,
+	},
+	"gpt-3.5-turbo-1106": {
+		prompt: 0.001,
+		completion: 0.002,
+	},
 	whisper: {
 		completion: 0.006, // $0.006 per minute
 	},
@@ -55,7 +63,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.2",
+	version: "0.7.3",
 	type: "action",
 	props: {
 		notion: {
@@ -784,6 +792,11 @@ export default {
 								},
 							],
 							temperature: this.temperature / 10 ?? 0.2,
+							...((this.chat_model === "gpt-3.5-turbo-1106" || this.chat_model === "gpt-4-1106-preview")
+								&& {
+									response_format: { "type": "json_object" }
+								}
+							)
 						},
 						{
 							maxRetries: 3,
@@ -1205,6 +1218,10 @@ export default {
 
 			const chatModel = model.includes("gpt-4-32")
 				? "gpt-4-32k"
+				: model.included("gpt-4-1106-preview")
+				? "gpt-4-1106-preview"
+				: model.includes("gpt-3.5-turbo-1106")
+				? "gpt-3.5-turbo-1106"
 				: model.includes("gpt-4")
 				? "gpt-4"
 				: model.includes("gpt-3.5-turbo-16k")
