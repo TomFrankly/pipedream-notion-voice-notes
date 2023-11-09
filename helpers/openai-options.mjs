@@ -1,3 +1,5 @@
+import lang from "./languages.mjs";
+
 export default {
     props: {
         temperature: {
@@ -31,6 +33,12 @@ export default {
             description: `By default, this workflow will **not** check your transcript for inappropriate content using OpenAI's Moderation API. If you'd like to enable this check, set this option to **false**.\n\nThis option may be subject to low rate limits within your OpenAI account, which is why it is disabled by default. You can check your current rate limits by visiting your account's [rate limits page](https://platform.openai.com/account/rate-limits) and checking the limit for the **text-moderation-stable** endpoint.`,
             optional: true,
             default: true,
+        },
+        whisper_prompt: {
+            type: "string",
+            label: "Whisper Prompt (Optional)",
+            description: `You can enter a prompt here to help guide the transcription model's style. By default, the prompt will be "Hello, welcome to my lecture." which is a default prompt provided by OpenAI to help improve with punctuation. Learn more: https://platform.openai.com/docs/guides/speech-to-text/prompting`,
+            optional: true,
         }
     }
 }

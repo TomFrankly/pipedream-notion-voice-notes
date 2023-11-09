@@ -55,7 +55,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.1",
+	version: "0.7.2",
 	type: "action",
 	props: {
 		notion: {
@@ -229,6 +229,7 @@ export default {
 					},
 				}),
 			...(this.advanced_options === true && {
+				whisper_prompt: openaiOptions.props.whisper_prompt,
 				verbosity: openaiOptions.props.verbosity,
 				summary_language: translation.props.summary_language,
 				...(this.summary_language && {
@@ -460,6 +461,7 @@ export default {
 											language: config.transcriptLanguage,
 										}),
 									file: readStream,
+									prompt: this.whisper_prompt && this.whisper_prompt !== "" ? this.whisper_prompt : `Hello, welcome to my lecture.`,
 								},
 								{
 									maxRetries: 5,
