@@ -63,7 +63,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.3",
+	version: "0.7.4",
 	type: "action",
 	props: {
 		notion: {
@@ -229,7 +229,8 @@ export default {
 						min: 500,
 						max:
 							this.chat_model.includes("gpt-4") ||
-							this.chat_model.includes("gpt-3.5-turbo-16k")
+							this.chat_model.includes("gpt-3.5-turbo-16k") || 
+							this.chat_model.includes("gpt-3.5-turbo-1106")
 								? 5000
 								: 2750,
 						default: 2750,
@@ -1218,7 +1219,7 @@ export default {
 
 			const chatModel = model.includes("gpt-4-32")
 				? "gpt-4-32k"
-				: model.included("gpt-4-1106-preview")
+				: model.includes("gpt-4-1106-preview")
 				? "gpt-4-1106-preview"
 				: model.includes("gpt-3.5-turbo-1106")
 				? "gpt-3.5-turbo-1106"
