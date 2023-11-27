@@ -408,8 +408,11 @@ export default {
 			const chunkSize = this.chunk_size ?? 24;
 			const numberOfChunks = Math.ceil(fileSizeInMB / chunkSize);
 
+			console.log(`Full file size: ${fileSizeInMB}mb. Chunk size: ${chunkSize}mb. Expected number of chunks: ${numberOfChunks}. Commencing chunking...`);
+
 			if (numberOfChunks === 1) {
 				await execAsync(`cp "${file}" "${outputDir}/chunk-000${ext}"`);
+				console.log(`Created 1 chunk: ${outputDir}/chunk-000${ext}`)
 				return;
 			}
 
@@ -424,14 +427,24 @@ export default {
 
 			const command = `${ffmpegPath} -i "${file}" -f segment -segment_time ${segmentTime} -c copy -loglevel verbose "${outputDir}/chunk-%03d${ext}"`;
 			console.log(`Spliting file into chunks with ffmpeg command: ${command}`);
-			const { stdout: chunkOutput, stderr: chunkError } = await execAsync(command);
+			
+			try {
+				const { stdout: chunkOutput, stderr: chunkError } = await execAsync(command);
 
-			if (chunkOutput) {
-				console.log(`stdout: ${chunkOutput}`);
-			}
+				if (chunkOutput) {
+					console.log(`stdout: ${chunkOutput}`);
+				}
 
-			if (chunkError) {
-				console.log(`stderr: ${chunkError}`);
+				if (chunkError) {
+					console.log(`stderr: ${chunkError}`);
+				}
+
+				const chunkFiles = await fs.promises.readdir(outputDir);
+				const chunkCount = chunkFiles.filter((file) => file.includes("chunk-")).length;
+				console.log(`Created ${chunkCount} chunks.`)
+			} catch (error) {
+				console.error(`An error occurred while splitting the file into chunks: ${error}`);
+				throw error;
 			}
 		},
 		transcribeFiles({ files, outputDir }, openai) {
@@ -507,15 +520,24 @@ export default {
 
 						return response;
 					} catch (error) {
-						if (error.message.includes("ECONNRESET")) {
-							console.log("Encountered ECONNRESET, retrying...");
-							throw error;
-						} else if (error.status >= 500) {
-							console.log("Encountered 500 error, retrying...");
+						if (error instanceof OpenAI.APIError) {
+							console.log(`Encounted error from OpenAI: ${error.message}`);
+							console.log(`Status code: ${error.status}`);
+							console.log(`Error name: ${error.name}`);
+							console.log(`Error headers: ${JSON.stringify(error.headers)}`);
+						} else {
+							console.log(`Encountered generic error, not described by OpenAI SDK error handler: ${error}`);
+						}
+
+						if (error.message.toLowerCase().includes("econnreset") || error.message.toLowerCase().includes("connection error") || (error.status && error.status >= 500)) {
+							console.log(`Encountered a recoverable error. Retrying...`);
 							throw error;
 						} else {
-							bail(error);
+							console.log(`Encountered an error that won't be helped by retrying. Bailing...`);
+							bail(error)
 						}
+					} finally {
+						readStream.destroy();
 					}
 				},
 				{
@@ -1945,6 +1967,7 @@ export default {
 			openai
 		);
 
+		console.log("Whisper chunks array:")
 		console.dir(fileInfo.whisper, { depth: null });
 
 		await this.cleanTmp();
