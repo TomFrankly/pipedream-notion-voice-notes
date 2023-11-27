@@ -63,7 +63,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.4",
+	version: "0.7.5",
 	type: "action",
 	props: {
 		notion: {
