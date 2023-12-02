@@ -13,12 +13,12 @@ import { exec } from "child_process";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import natural from "natural";
 import retry from "async-retry";
-import { jsonrepair } from "jsonrepair";
 import lang from "./helpers/languages.mjs";
 import common from "./helpers/common.mjs";
 import translation from "./helpers/translate-transcript.mjs";
 import openaiOptions from "./helpers/openai-options.mjs";
 import {franc, francAll} from 'franc'
+import EMOJI from '/helpers/emoji.mjs'
 
 const execAsync = promisify(exec);
 
@@ -63,7 +63,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.5",
+	version: "0.7.6",
 	type: "action",
 	props: {
 		notion: {
@@ -184,6 +184,14 @@ export default {
 				optional: true,
 				reloadProps: true,
 			},
+			noteIcon: {
+				type: "string",
+				label: "Note Page Icon",
+				description: "Choose an emoji to use as the icon for your note page. Defaults to 🤖.",
+				options: EMOJI,
+				optional: true,
+				default: "🤖",
+			},
 			...(this.noteTag && {
 				noteTagValue: {
 					type: "string",
@@ -302,7 +310,7 @@ export default {
 				}
 
 				// Define the tmp file path
-				const tmpPath = `/tmp/${filePath.match(/[^\/]*\.\w+$/)[0]}`;
+				const tmpPath = `/tmp/${filePath.match(/[^\/]*\.\w+$/)[0].replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
 
 				// Download the audio recording from Dropbox to tmp file path
 				const pipeline = promisify(stream.pipeline);
@@ -1354,7 +1362,7 @@ export default {
 				},
 				icon: {
 					type: "emoji",
-					emoji: "🤖",
+					emoji: this.noteIcon,
 				},
 				properties: {
 					[this.noteTitle]: {
@@ -1416,7 +1424,7 @@ export default {
 								},
 							],
 							icon: {
-								emoji: "🤖",
+								emoji: this.noteIcon,
 							},
 							color: "blue_background",
 						},
@@ -1908,7 +1916,7 @@ export default {
 
 		if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
-			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name}`;
+			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
@@ -1919,7 +1927,7 @@ export default {
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
-			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name}`;
+			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
@@ -1933,7 +1941,7 @@ export default {
 			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.path = this.steps.ms_onedrive_download.$return_value;
+			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "");
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
