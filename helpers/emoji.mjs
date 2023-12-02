@@ -3024,7 +3024,7 @@ const EMOJI = [
     "🇪🇭",
     "🇾🇪",
     "🇿🇲",
-    "🇿🇼"
-]
+    "🇿🇼",
+];
 
-export default EMOJI
+export default EMOJI;

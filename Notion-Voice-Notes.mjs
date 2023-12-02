@@ -17,8 +17,8 @@ import lang from "./helpers/languages.mjs";
 import common from "./helpers/common.mjs";
 import translation from "./helpers/translate-transcript.mjs";
 import openaiOptions from "./helpers/openai-options.mjs";
-import {franc, francAll} from 'franc'
-import EMOJI from '/helpers/emoji.mjs'
+import {franc, francAll} from 'franc';
+import EMOJI from './helpers/emoji.mjs';
 
 const execAsync = promisify(exec);
 
