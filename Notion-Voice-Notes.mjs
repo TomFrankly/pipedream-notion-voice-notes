@@ -63,7 +63,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.6",
+	version: "0.7.7",
 	type: "action",
 	props: {
 		notion: {
@@ -187,7 +187,7 @@ export default {
 			noteIcon: {
 				type: "string",
 				label: "Note Page Icon",
-				description: "Choose an emoji to use as the icon for your note page. Defaults to 🤖.",
+				description: "Choose an emoji to use as the icon for your note page. Defaults to 🤖. If you don't see the emoji you want in the list, you can also simply type or paste it in the box below.",
 				options: EMOJI,
 				optional: true,
 				default: "🤖",
