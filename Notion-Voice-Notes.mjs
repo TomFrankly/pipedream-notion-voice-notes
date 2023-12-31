@@ -516,7 +516,7 @@ export default {
 							),
 						};
 						console.log(
-							`Received response from OpenAI Whisper endpoint for ${file}. Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):`
+							`Received response from OpenAI Whisper endpoint for ${file}. Your API key's current Audio endpoint limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):`
 						);
 						console.table(limits);
 
