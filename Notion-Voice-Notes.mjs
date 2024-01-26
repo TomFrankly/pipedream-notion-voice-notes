@@ -24,7 +24,7 @@ const execAsync = promisify(exec);
 
 const rates = {
 	"gpt-3.5-turbo": {
-		prompt: 0.0015,
+		prompt: 0.001,
 		completion: 0.002,
 	},
 	"gpt-3.5-turbo-16k": {
@@ -49,13 +49,14 @@ const rates = {
 	},
 	whisper: {
 		completion: 0.006, // $0.006 per minute
-	},
+	}
 };
 
 const config = {
 	filePath: "",
 	chunkDir: "",
 	supportedMimes: [".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"],
+	no_duration_flag: false
 };
 
 export default {
@@ -63,7 +64,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.7",
+	version: "0.7.8",
 	type: "action",
 	props: {
 		notion: {
@@ -255,6 +256,7 @@ export default {
 				temperature: openaiOptions.props.temperature,
 				chunk_size: openaiOptions.props.chunk_size,
 				disable_moderation_check: openaiOptions.props.disable_moderation_check,
+				fail_on_no_duration: openaiOptions.props.fail_on_no_duration
 			}),
 		};
 
@@ -305,7 +307,7 @@ export default {
 				// Check if the mime type is supported (mp3 or m4a)
 				if (config.supportedMimes.includes(mime) === false) {
 					throw new Error(
-						"Unsupported file type. Only mp3 and m4a files are supported."
+						`Unsupported file type. Supported file types include ${config.supportedMimes.join(', ')}.`
 					);
 				}
 
@@ -1215,10 +1217,18 @@ export default {
 			return lengthCheckedParagraphs;
 		},
 		async calculateTranscriptCost(duration, model) {
+			let internalDuration
+			
 			if (!duration || typeof duration !== "number") {
-				throw new Error(
-					"Invalid duration number (thrown from calculateTranscriptCost)."
-				);
+				if (this.fail_on_no_duration === true) {
+					throw new Error(
+						`Duration of the audio file could not be determined. Fail On No Duration flag is set to true; workflow is ending.`
+					)
+				}
+				internalDuration = 0
+				console.log(`Duration of the audio file could not be determined. Setting duration to zero so run does not fail. Note that pricing information about the run will be inaccurate for this reason. Duration calculation issues are almost always caused by certain recording apps creating audio files that cannot be parsed by this workflow's duration-calculation function. If you want accurate durations and AI costs from this automation, consider trying a different voice recorder app.`)
+			} else {
+				internalDuration = duration
 			}
 
 			if (!model || typeof model !== "string") {
@@ -1227,8 +1237,11 @@ export default {
 				);
 			}
 
-			console.log(`Calculating the cost of the transcript...`);
-			const cost = (duration / 60) * rates[model].completion;
+			if (internalDuration > 0) {
+				console.log(`Calculating the cost of the transcript...`);
+			}
+
+			const cost = (internalDuration / 60) * rates[model].completion;
 			console.log(`Transcript cost: $${cost.toFixed(3).toString()}`);
 
 			return cost;

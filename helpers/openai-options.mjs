@@ -39,6 +39,13 @@ export default {
             label: "Whisper Prompt (Optional)",
             description: `You can enter a prompt here to help guide the transcription model's style. By default, the prompt will be "Hello, welcome to my lecture." which is a default prompt provided by OpenAI to help improve with punctuation. Learn more: https://platform.openai.com/docs/guides/speech-to-text/prompting`,
             optional: true,
+        },
+        fail_on_no_duration: {
+            type: "boolean",
+            label: "Fail on No Duration",
+            description: "If this automation fails to calculate the duration of the audio file, it will also be unable to calculate the cost of the run. Set this to **true** if you would like the workflow to throw an error and end in this case. If this option is set to **false**, the workflow will continue and set duration to zero.\n\nTypically, duration calculation failures happen when certain voice recorder apps create audio files that can't be read by this automation's duration-calculation function (the music-metadata npm package). The only solution is to try a different voice recorder app.",
+            default: false,
+            optional: true
         }
     }
 }
