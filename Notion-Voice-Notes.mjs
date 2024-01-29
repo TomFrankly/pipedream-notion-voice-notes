@@ -64,7 +64,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.8",
+	version: "0.7.9",
 	type: "action",
 	props: {
 		notion: {
@@ -1930,6 +1930,7 @@ export default {
 		if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
 			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
+			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
@@ -1941,6 +1942,7 @@ export default {
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
 			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
+			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
@@ -1954,7 +1956,8 @@ export default {
 			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "");
+			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\]/g, "");
+			console.log(`File path of MS OneDrive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
@@ -1973,6 +1976,7 @@ export default {
 					this.steps.trigger.event.size
 				)
 			);
+			console.log(`File path of Dropbox file: ${fileInfo.path}`);
 		}
 
 		config.filePath = fileInfo.path;
