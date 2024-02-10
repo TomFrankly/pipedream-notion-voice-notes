@@ -479,7 +479,7 @@ export default {
 		},
 		transcribe({ file, outputDir }, openai) {
 			return retry(
-				async (bail) => {
+				async (bail, attempt) => {
 					const readStream = fs.createReadStream(join(outputDir, file));
 					console.log(`Transcribing file: ${file}`);
 
@@ -531,7 +531,7 @@ export default {
 						return response;
 					} catch (error) {
 						if (error instanceof OpenAI.APIError) {
-							console.log(`Encounted error from OpenAI: ${error.message}`);
+							console.log(`Encountered error from OpenAI: ${error.message}`);
 							console.log(`Status code: ${error.status}`);
 							console.log(`Error name: ${error.name}`);
 							console.log(`Error headers: ${JSON.stringify(error.headers)}`);
