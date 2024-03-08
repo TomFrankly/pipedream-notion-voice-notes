@@ -64,7 +64,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.9",
+	version: "0.7.12",
 	type: "action",
 	props: {
 		notion: {
@@ -1909,11 +1909,11 @@ export default {
 		const logSettings = {
 			"Chat Model": this.chat_model,
 			"Summary Options": this.summary_options,
-			"Summary Density": this.summary_density,
-			Verbosity: this.verbosity,
-			"Temperature:": this.temperature,
-			"Audio File Chunk Size": this.chunk_size,
-			"Moderation Check": this.disable_moderation_check,
+			"Summary Density": this.summary_density ?? "2750 (default)",
+			Verbosity: this.verbosity ?? "Medium (default)",
+			"Temperature:": this.temperature ?? "0.2 (default)",
+			"Audio File Chunk Size": this.chunk_size ?? "24 (default)",
+			"Moderation Check": this.disable_moderation_check ?? "Disabled (default)",
 			"Note Title Property": this.noteTitle,
 			"Note Tag Property": this.noteTag,
 			"Note Tag Value": this.noteTagValue,
@@ -1921,7 +1921,11 @@ export default {
 			"Note Cost Property": this.noteCost,
 			"Transcript Language": this.transcript_language ?? "No language set.",
 			"Summary Language": this.summary_language ?? "No language set.",
+			"Fail on no Duration": this.fail_on_no_duration ?? "Disabled (default)",
 		};
+
+		console.log("Logging settings...");
+		console.dir(logSettings);
 
 		const notion = new Client({ auth: this.notion.$auth.oauth_access_token });
 
@@ -2035,8 +2039,11 @@ export default {
 			);
 		}
 
-		if (this.disable_moderation_check !== true) {
+		if (this.disable_moderation_check === false) {
+			console.log(`Modederation check has been enabled. Running the moderation check...`);
 			await this.moderationCheck(fileInfo.full_transcript, openai);
+		} else {
+			console.log(`Moderation check has been disabled. Moderation will not be performed.`);
 		}
 
 		const encodedTranscript = encode(fileInfo.full_transcript);
