@@ -6,6 +6,39 @@
  * - [ ] Add Deegram as an option
  * - [ ] Add SRT output as an option
  * - [ ] Pause until callback (deepgram only)
+ * -- Notes: Re-awakening on a callback will use another credit. So we could only pass a callback on files that are going to take a long time to transcribe.
+ */
+
+/**
+ * Maximizing performance:
+ * 
+ * Option 1: Chunking
+ * - Benefit: Faster, may use fewer Pipedream credits
+ * - Drawbacks: Risk of cutting off words or sentences, more complexity due to VTT chunking, more complex to summarize
+ * - Get the full duration of the file and store it
+ * - Split long files into chunks, named sequentially
+ * - Get the duration of each chunk and store it, along with a start index which is the end index of the previous chunk, and an end index which is the start index plus the duration.
+ * - Transcribe each chunk
+ * - Send each chunk through the VTT caption function
+ * - Add every timestamp to the start time of the chunk to create a modified timestamp
+ * - Send VTT chunk to OpenAI for summary with timestamp markers on summary points
+ * - Concatenate all the VTT files into one
+ * - Concatenate all the summaries into one
+ * 
+ * Option 2: Pause and resume with callback
+ * - Benefit: No need to chunk the file, so no risk of cutting off words or sentences
+ * - Drawback: Will take longer
+ * - To optimize: Figure out when to use a callback. Will always use at least 2 Pipedream credits.
+ * -- Initial guess calculation: File duration (in minutes) * 3.5 = workflow runtime in seconds
+ * -- But only 20% of the time on my test file was spent transcribing, so we could use a lower multiplier. 6.7s on Deepgram to transcribe. But 34s to get the full result (albiet using Whisper, not Deepgram).
+ * -- I think it only makes sense to do a callback if the file will take more than 30 seconds to transcribe.
+ * Method:
+ * - Get the full duration of the file and store it
+ * - Transcribe the file
+ * - Send the file through the VTT caption function
+ * - Chunk the full VTT into smaller pieces based on LLM context window limit
+ * - Send each chunk through the OpenAI summarization function
+ * - Concatenate all the summaries into one
  */
 
 /** 

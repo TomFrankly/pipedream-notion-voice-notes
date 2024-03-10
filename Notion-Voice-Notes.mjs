@@ -17,8 +17,10 @@ import lang from "./helpers/languages.mjs";
 import common from "./helpers/common.mjs";
 import translation from "./helpers/translate-transcript.mjs";
 import openaiOptions from "./helpers/openai-options.mjs";
-import {franc, francAll} from 'franc';
-import EMOJI from './helpers/emoji.mjs';
+import { franc, francAll } from "franc";
+import EMOJI from "./helpers/emoji.mjs";
+import { createClient } from "@deepgram/sdk";
+import { webvtt } from "@deepgram/captions";
 
 const execAsync = promisify(exec);
 
@@ -49,14 +51,17 @@ const rates = {
 	},
 	whisper: {
 		completion: 0.006, // $0.006 per minute
-	}
+	},
+	"nova-2": {
+		completion: 0.0043, // $0.0043 per minute
+	},
 };
 
 const config = {
 	filePath: "",
 	chunkDir: "",
 	supportedMimes: [".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"],
-	no_duration_flag: false
+	no_duration_flag: false,
 };
 
 export default {
@@ -64,7 +69,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.12",
+	version: "0.7.21",
 	type: "action",
 	props: {
 		notion: {
@@ -188,7 +193,8 @@ export default {
 			noteIcon: {
 				type: "string",
 				label: "Note Page Icon",
-				description: "Choose an emoji to use as the icon for your note page. Defaults to 🤖. If you don't see the emoji you want in the list, you can also simply type or paste it in the box below.",
+				description:
+					"Choose an emoji to use as the icon for your note page. Defaults to 🤖. If you don't see the emoji you want in the list, you can also simply type or paste it in the box below.",
 				options: EMOJI,
 				optional: true,
 				default: "🤖",
@@ -221,6 +227,21 @@ export default {
 				reloadProps: true,
 			},
 			transcript_language: translation.props.transcript_language,
+			transcription_service: {
+				type: "string",
+				label: "Transcription Service",
+				description:
+					"Choose the service to use for transcription. By default, OpenAI's Whisper service is used, which uses your OpenAI API key. If you choose to transcribe with [Deepgram](https://deepgram.com/), you'll need to provide a Deepgram API key in the property that appears after you select Deepgram. **Note: Deepgram transcription is in beta and may not work as expected.**",
+				options: ["OpenAI", "Deepgram"],
+				default: "OpenAI",
+				reloadProps: true,
+			},
+			...(this.transcription_service === "Deepgram" && {
+				deepgram: {
+					type: "app",
+					app: "deepgram",
+				},
+			}),
 			advanced_options: {
 				type: "boolean",
 				label: "Enable Advanced Options",
@@ -238,7 +259,7 @@ export default {
 						min: 500,
 						max:
 							this.chat_model.includes("gpt-4") ||
-							this.chat_model.includes("gpt-3.5-turbo-16k") || 
+							this.chat_model.includes("gpt-3.5-turbo-16k") ||
 							this.chat_model.includes("gpt-3.5-turbo-1106")
 								? 5000
 								: 2750,
@@ -256,7 +277,7 @@ export default {
 				temperature: openaiOptions.props.temperature,
 				chunk_size: openaiOptions.props.chunk_size,
 				disable_moderation_check: openaiOptions.props.disable_moderation_check,
-				fail_on_no_duration: openaiOptions.props.fail_on_no_duration
+				fail_on_no_duration: openaiOptions.props.fail_on_no_duration,
 			}),
 		};
 
@@ -307,12 +328,16 @@ export default {
 				// Check if the mime type is supported (mp3 or m4a)
 				if (config.supportedMimes.includes(mime) === false) {
 					throw new Error(
-						`Unsupported file type. Supported file types include ${config.supportedMimes.join(', ')}.`
+						`Unsupported file type. Supported file types include ${config.supportedMimes.join(
+							", "
+						)}.`
 					);
 				}
 
 				// Define the tmp file path
-				const tmpPath = `/tmp/${filePath.match(/[^\/]*\.\w+$/)[0].replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
+				const tmpPath = `/tmp/${filePath
+					.match(/[^\/]*\.\w+$/)[0]
+					.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
 
 				// Download the audio recording from Dropbox to tmp file path
 				const pipeline = promisify(stream.pipeline);
@@ -394,15 +419,15 @@ export default {
 					
 					If the full error below says "Unidentified connection error", please double-check that you have entered valid billing info in your OpenAI account. Afterward, generate a new API key and enter it in the OpenAI app here in Pipedream. Then, try running the workflow again.
 					
-					If that does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`
+					If that does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`;
 				} else if (/Invalid file format/i.test(error.message)) {
 					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
 
-					Note: OpenAI officially supports .m4a files, but some apps create .m4a files that OpenAI can't read. If you're using an .m4a file, try converting it to .mp3 and running the workflow again.`
+					Note: OpenAI officially supports .m4a files, but some apps create .m4a files that OpenAI can't read. If you're using an .m4a file, try converting it to .mp3 and running the workflow again.`;
 				} else {
-					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.`
+					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.`;
 				}
-				
+
 				throw new Error(
 					`${errorText}
 					
@@ -418,11 +443,13 @@ export default {
 			const chunkSize = this.chunk_size ?? 24;
 			const numberOfChunks = Math.ceil(fileSizeInMB / chunkSize);
 
-			console.log(`Full file size: ${fileSizeInMB}mb. Chunk size: ${chunkSize}mb. Expected number of chunks: ${numberOfChunks}. Commencing chunking...`);
+			console.log(
+				`Full file size: ${fileSizeInMB}mb. Chunk size: ${chunkSize}mb. Expected number of chunks: ${numberOfChunks}. Commencing chunking...`
+			);
 
 			if (numberOfChunks === 1) {
 				await execAsync(`cp "${file}" "${outputDir}/chunk-000${ext}"`);
-				console.log(`Created 1 chunk: ${outputDir}/chunk-000${ext}`)
+				console.log(`Created 1 chunk: ${outputDir}/chunk-000${ext}`);
 				return;
 			}
 
@@ -437,9 +464,11 @@ export default {
 
 			const command = `${ffmpegPath} -i "${file}" -f segment -segment_time ${segmentTime} -c copy -loglevel verbose "${outputDir}/chunk-%03d${ext}"`;
 			console.log(`Spliting file into chunks with ffmpeg command: ${command}`);
-			
+
 			try {
-				const { stdout: chunkOutput, stderr: chunkError } = await execAsync(command);
+				const { stdout: chunkOutput, stderr: chunkError } = await execAsync(
+					command
+				);
 
 				if (chunkOutput) {
 					console.log(`stdout: ${chunkOutput}`);
@@ -450,10 +479,14 @@ export default {
 				}
 
 				const chunkFiles = await fs.promises.readdir(outputDir);
-				const chunkCount = chunkFiles.filter((file) => file.includes("chunk-")).length;
-				console.log(`Created ${chunkCount} chunks.`)
+				const chunkCount = chunkFiles.filter((file) =>
+					file.includes("chunk-")
+				).length;
+				console.log(`Created ${chunkCount} chunks.`);
 			} catch (error) {
-				console.error(`An error occurred while splitting the file into chunks: ${error}`);
+				console.error(
+					`An error occurred while splitting the file into chunks: ${error}`
+				);
 				throw error;
 			}
 		},
@@ -493,7 +526,10 @@ export default {
 											language: config.transcriptLanguage,
 										}),
 									file: readStream,
-									prompt: this.whisper_prompt && this.whisper_prompt !== "" ? this.whisper_prompt : `Hello, welcome to my lecture.`,
+									prompt:
+										this.whisper_prompt && this.whisper_prompt !== ""
+											? this.whisper_prompt
+											: `Hello, welcome to my lecture.`,
 								},
 								{
 									maxRetries: 5,
@@ -536,15 +572,23 @@ export default {
 							console.log(`Error name: ${error.name}`);
 							console.log(`Error headers: ${JSON.stringify(error.headers)}`);
 						} else {
-							console.log(`Encountered generic error, not described by OpenAI SDK error handler: ${error}`);
+							console.log(
+								`Encountered generic error, not described by OpenAI SDK error handler: ${error}`
+							);
 						}
 
-						if (error.message.toLowerCase().includes("econnreset") || error.message.toLowerCase().includes("connection error") || (error.status && error.status >= 500)) {
+						if (
+							error.message.toLowerCase().includes("econnreset") ||
+							error.message.toLowerCase().includes("connection error") ||
+							(error.status && error.status >= 500)
+						) {
 							console.log(`Encountered a recoverable error. Retrying...`);
 							throw error;
 						} else {
-							console.log(`Encountered an error that won't be helped by retrying. Bailing...`);
-							bail(error)
+							console.log(
+								`Encountered an error that won't be helped by retrying. Bailing...`
+							);
+							bail(error);
 						}
 					} finally {
 						readStream.destroy();
@@ -557,6 +601,78 @@ export default {
 					},
 				}
 			);
+		},
+		async transcribeDeepgram(file) {
+			const deepgram = createClient(this.deepgram.$auth.api_key);
+
+			const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+				fs.createReadStream(file),
+				{
+					model: "whisper",
+					smart_format: true,
+					detect_language: true,
+					diarize: true,
+					numerals: false,
+					// keywords: [{ word: "Flylighter", boost: 1.5 }],
+				}
+			);
+
+			if (error) {
+				throw new Error(`Deepgram error: ${error.message}`);
+			}
+
+			const vttOutput = this.formatWebVTT(webvtt(result));
+
+			const output = {
+				metadata: result?.metadata ?? "No metadata available",
+				raw_transcript:
+					result?.results?.channels?.[0]?.alternatives?.[0]?.transcript ??
+					"Transcript not available",
+				raw_transcript_confidence:
+					result?.results?.channels?.[0]?.alternatives?.[0]?.confidence ??
+					"Confidence score not available",
+				paragraphs:
+					result?.results?.channels?.[0]?.alternatives?.[0]?.paragraphs
+						?.transcript ?? "No paragraphs available",
+				detected_language:
+					result?.results?.channels?.[0]?.detected_language ??
+					"Language not detected",
+				language_confidence:
+					result?.results?.channels?.[0]?.language_confidence ??
+					"Language confidence not available",
+				vttOutput: vttOutput ?? "VTT output not available",
+			};
+
+			return output;
+		},
+		formatWebVTT(webVTTString) {
+			// Split the input into lines
+			const lines = webVTTString.split("\n");
+			let formattedLines = [];
+
+			for (let i = 0; i < lines.length; i++) {
+				const clearedLine = lines[i].trim();
+
+				if (clearedLine.match(/^\d{2}:\d{2}:\d{2}.\d{3}.*/)) {
+					// Keep only the start timestamp
+					const timestampParts = clearedLine.split(" --> ");
+					console.log(timestampParts);
+					formattedLines.push(timestampParts[0]);
+				}
+				// Check and format speaker lines
+				else if (clearedLine.match(/<v ([^>]+)>(.*)/)) {
+					const speakerMatch = clearedLine.match(/<v ([^>]+)>(.*)/);
+					// Adjust speaker format
+					if (speakerMatch) {
+						formattedLines.push(`${speakerMatch[1]}: ${speakerMatch[2].trim()}`);
+					}
+				} else {
+					// For lines that do not need formatting, push them as they are
+					formattedLines.push(clearedLine);
+				}
+			}
+
+			return formattedLines.join("\n");
 		},
 		async combineWhisperChunks(chunksArray) {
 			console.log(
@@ -825,11 +941,10 @@ export default {
 								},
 							],
 							temperature: this.temperature / 10 ?? 0.2,
-							...((this.chat_model === "gpt-3.5-turbo-1106" || this.chat_model === "gpt-4-1106-preview")
-								&& {
-									response_format: { "type": "json_object" }
-								}
-							)
+							...((this.chat_model === "gpt-3.5-turbo-1106" ||
+								this.chat_model === "gpt-4-1106-preview") && {
+								response_format: { type: "json_object" },
+							}),
 						},
 						{
 							maxRetries: 3,
@@ -1049,7 +1164,6 @@ export default {
 			const resultsArray = [];
 			console.log(`Formatting the ChatGPT results...`);
 			for (let result of summaryArray) {
-
 				const response = {
 					choice: this.repairJSON(result.choices[0].message.content),
 					usage: !result.usage.total_tokens ? 0 : result.usage.total_tokens,
@@ -1058,35 +1172,40 @@ export default {
 				resultsArray.push(response);
 			}
 
-			let chatResponse = resultsArray.reduce((acc, curr) => {
-				if (!curr.choice) return acc;
+			let chatResponse = resultsArray.reduce(
+				(acc, curr) => {
+					if (!curr.choice) return acc;
 
-				acc.summary.push(curr.choice.summary || []);
-				acc.main_points.push(curr.choice.main_points || []);
-				acc.action_items.push(curr.choice.action_items || []);
-				acc.stories.push(curr.choice.stories || []);
-				acc.references.push(curr.choice.references || []);
-				acc.arguments.push(curr.choice.arguments || []);
-				acc.follow_up.push(curr.choice.follow_up || []);
-				acc.related_topics.push(curr.choice.related_topics || []);
-				acc.usageArray.push(curr.usage || 0);
+					acc.summary.push(curr.choice.summary || []);
+					acc.main_points.push(curr.choice.main_points || []);
+					acc.action_items.push(curr.choice.action_items || []);
+					acc.stories.push(curr.choice.stories || []);
+					acc.references.push(curr.choice.references || []);
+					acc.arguments.push(curr.choice.arguments || []);
+					acc.follow_up.push(curr.choice.follow_up || []);
+					acc.related_topics.push(curr.choice.related_topics || []);
+					acc.usageArray.push(curr.usage || 0);
 
-				return acc;
-			}, {
-				title: resultsArray[0]?.choice?.title,
-				sentiment: this.summary_options.includes("Sentiment") ? resultsArray[0]?.choice?.sentiment : undefined,
-				summary: [],
-				main_points: [],
-				action_items: [],
-				stories: [],
-				references: [],
-				arguments: [],
-				follow_up: [],
-				related_topics: [],
-				usageArray: [],
-			})
+					return acc;
+				},
+				{
+					title: resultsArray[0]?.choice?.title,
+					sentiment: this.summary_options.includes("Sentiment")
+						? resultsArray[0]?.choice?.sentiment
+						: undefined,
+					summary: [],
+					main_points: [],
+					action_items: [],
+					stories: [],
+					references: [],
+					arguments: [],
+					follow_up: [],
+					related_topics: [],
+					usageArray: [],
+				}
+			);
 
-			console.log(`ChatResponse object after ChatGPT items have been inserted:`)
+			console.log(`ChatResponse object after ChatGPT items have been inserted:`);
 			console.dir(chatResponse, { depth: null });
 
 			function arraySum(arr) {
@@ -1098,21 +1217,19 @@ export default {
 				return sum;
 			}
 
-			console.log(`Filtering Related Topics, if any exist:`)
-			let filtered_related_topics = chatResponse.related_topics.flat().filter(
-				(item) => item !== undefined && item !== null && item !== ""
-			)
+			console.log(`Filtering Related Topics, if any exist:`);
+			let filtered_related_topics = chatResponse.related_topics
+				.flat()
+				.filter((item) => item !== undefined && item !== null && item !== "");
 
 			let filtered_related_set;
 
 			if (filtered_related_topics.length > 1) {
 				filtered_related_set = Array.from(
-					new Set(
-						filtered_related_topics.map((item) => item.toLowerCase())
-					)
-				)
+					new Set(filtered_related_topics.map((item) => item.toLowerCase()))
+				);
 			}
-			
+
 			const finalChatResponse = {
 				title: chatResponse.title,
 				summary: chatResponse.summary.join(" "),
@@ -1132,103 +1249,115 @@ export default {
 				tokens: arraySum(chatResponse.usageArray),
 			};
 
-			console.log(`Final ChatResponse object:`)
+			console.log(`Final ChatResponse object:`);
 			console.dir(finalChatResponse, { depth: null });
 
 			return finalChatResponse;
 		},
 		makeParagraphs(transcript, maxLength = 1200) {
-	
 			const languageCode = franc(transcript);
 			console.log(`Detected language with franc library: ${languageCode}`);
-		
+
 			let transcriptSentences;
 			let sentencesPerParagraph;
-		
+
 			if (languageCode === "cmn" || languageCode === "und") {
-				console.log(`Detected language is Chinese or undetermined, splitting by punctuation...`);
+				console.log(
+					`Detected language is Chinese or undetermined, splitting by punctuation...`
+				);
 				transcriptSentences = transcript
 					.split(/[\u3002\uff1f\uff01\uff1b\uff1a\u201c\u201d\u2018\u2019]/)
 					.filter(Boolean);
-				sentencesPerParagraph = 3
+				sentencesPerParagraph = 3;
 			} else {
-				console.log(`Detected language is not Chinese, splitting by sentence tokenizer...`);
+				console.log(
+					`Detected language is not Chinese, splitting by sentence tokenizer...`
+				);
 				const tokenizer = new natural.SentenceTokenizer();
 				transcriptSentences = tokenizer.tokenize(transcript);
-				sentencesPerParagraph = 4
+				sentencesPerParagraph = 4;
 			}
-		
+
 			function sentenceGrouper(arr, sentencesPerParagraph) {
 				const newArray = [];
-		
+
 				for (let i = 0; i < arr.length; i += sentencesPerParagraph) {
 					newArray.push(arr.slice(i, i + sentencesPerParagraph).join(" "));
 				}
-		
+
 				return newArray;
 			}
-		
+
 			function charMaxChecker(arr, maxSize) {
 				const hardLimit = 1800;
-		
+
 				return arr
 					.map((element) => {
 						let chunks = [];
 						let currentIndex = 0;
-		
+
 						while (currentIndex < element.length) {
-							
 							let nextCutIndex = Math.min(currentIndex + maxSize, element.length);
-		
+
 							let nextSpaceIndex = element.indexOf(" ", nextCutIndex);
-		
+
 							if (nextSpaceIndex === -1 || nextSpaceIndex - currentIndex > hardLimit) {
 								console.log(`No space found or hard limit reached in element, splitting at ${nextCutIndex}.
 								
 								Transcript chunk is as follows: ${element}`);
 								nextSpaceIndex = nextCutIndex;
 							}
-		
-							while (nextSpaceIndex > 0 && isHighSurrogate(element.charCodeAt(nextSpaceIndex - 1))) {
+
+							while (
+								nextSpaceIndex > 0 &&
+								isHighSurrogate(element.charCodeAt(nextSpaceIndex - 1))
+							) {
 								nextSpaceIndex--;
 							}
-		
+
 							chunks.push(element.substring(currentIndex, nextSpaceIndex));
-		
+
 							currentIndex = nextSpaceIndex + 1;
 						}
-		
+
 						return chunks;
 					})
 					.flat();
 			}
-		
+
 			function isHighSurrogate(charCode) {
 				return charCode >= 0xd800 && charCode <= 0xdbff;
 			}
-		
+
 			console.log(`Converting the transcript to paragraphs...`);
-			console.log(`Number of sentences before paragraph grouping: ${transcriptSentences.length}`)
-			const paragraphs = sentenceGrouper(transcriptSentences, sentencesPerParagraph);
-			console.log(`Number of paragraphs after grouping: ${paragraphs.length}`)
+			console.log(
+				`Number of sentences before paragraph grouping: ${transcriptSentences.length}`
+			);
+			const paragraphs = sentenceGrouper(
+				transcriptSentences,
+				sentencesPerParagraph
+			);
+			console.log(`Number of paragraphs after grouping: ${paragraphs.length}`);
 			console.log(`Limiting paragraphs to ${maxLength} characters...`);
 			const lengthCheckedParagraphs = charMaxChecker(paragraphs, maxLength);
-		
+
 			return lengthCheckedParagraphs;
 		},
 		async calculateTranscriptCost(duration, model) {
-			let internalDuration
-			
+			let internalDuration;
+
 			if (!duration || typeof duration !== "number") {
 				if (this.fail_on_no_duration === true) {
 					throw new Error(
 						`Duration of the audio file could not be determined. Fail On No Duration flag is set to true; workflow is ending.`
-					)
+					);
 				}
-				internalDuration = 0
-				console.log(`Duration of the audio file could not be determined. Setting duration to zero so run does not fail. Note that pricing information about the run will be inaccurate for this reason. Duration calculation issues are almost always caused by certain recording apps creating audio files that cannot be parsed by this workflow's duration-calculation function. If you want accurate durations and AI costs from this automation, consider trying a different voice recorder app.`)
+				internalDuration = 0;
+				console.log(
+					`Duration of the audio file could not be determined. Setting duration to zero so run does not fail. Note that pricing information about the run will be inaccurate for this reason. Duration calculation issues are almost always caused by certain recording apps creating audio files that cannot be parsed by this workflow's duration-calculation function. If you want accurate durations and AI costs from this automation, consider trying a different voice recorder app.`
+				);
 			} else {
-				internalDuration = duration
+				internalDuration = duration;
 			}
 
 			if (!model || typeof model !== "string") {
@@ -1890,6 +2019,29 @@ export default {
 		},
 	},
 	async run({ steps, $ }) {
+		// Object for storing performance logs
+		let stageDurations = {
+			setup: 0,
+			download: 0,
+			transcription: 0,
+			transcriptCleanup: 0,
+			moderation: 0,
+			summary: 0,
+			translation: 0,
+			notionCreation: 0,
+			notionUpdate: 0,
+		};
+
+		function totalDuration(obj) {
+			return Object.keys(obj)
+				.filter((key) => typeof obj[key] === "number" && key !== "total")
+				.reduce((a, b) => a + obj[b], 0);
+		}
+
+		let previousTime = process.hrtime.bigint();
+
+		/* -- Setup Stage -- */
+
 		const fileID = this.steps.trigger.event.id;
 		const testEventId = "52776A9ACB4F8C54!134";
 
@@ -1908,6 +2060,7 @@ export default {
 
 		const logSettings = {
 			"Chat Model": this.chat_model,
+			"Transcription Service": this.transcription_service,
 			"Summary Options": this.summary_options,
 			"Summary Density": this.summary_density ?? "2750 (default)",
 			Verbosity: this.verbosity ?? "Medium (default)",
@@ -1931,9 +2084,24 @@ export default {
 
 		const fileInfo = {};
 
+		// Capture the setup stage's time taken in milliseconds
+		stageDurations.setup = Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(`Setup stage duration: ${stageDurations.setup}ms`);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Download Stage -- */
+
 		if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
-			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
+			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name.replace(
+				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
+				""
+			)}`;
 			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
@@ -1945,7 +2113,10 @@ export default {
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
-			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g, "")}`;
+			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name.replace(
+				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
+				""
+			)}`;
 			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
@@ -1960,7 +2131,10 @@ export default {
 			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(/[\?$#&\{\}\[\]<>\*!@:\+\\]/g, "");
+			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(
+				/[\?$#&\{\}\[\]<>\*!@:\+\\]/g,
+				""
+			);
 			console.log(`File path of MS OneDrive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
@@ -1987,19 +2161,61 @@ export default {
 
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
+		// Capture the download stage's time taken in milliseconds
+		stageDurations.download =
+			Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Download stage duration: ${stageDurations.download}ms (${
+				stageDurations.download / 1000
+			} seconds)`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Transcription Stage -- */
+
 		const openai = new OpenAI({
 			apiKey: this.openai.$auth.api_key,
 		});
 
-		fileInfo.whisper = await this.chunkFileAndTranscribe(
-			{ file: fileInfo.path },
-			openai
-		);
+		if (this.transcription_service === "OpenAI") {
+			console.log(`Using OpenAI's Whisper service for transcription.`);
+			fileInfo.whisper = await this.chunkFileAndTranscribe(
+				{ file: fileInfo.path },
+				openai
+			);
 
-		console.log("Whisper chunks array:")
-		console.dir(fileInfo.whisper, { depth: null });
+			console.log("Whisper chunks array:");
+			console.dir(fileInfo.whisper, { depth: null });
+		} else if (this.transcription_service === "Deepgram") {
+			console.log(`Using Deepgram for transcription.`);
+			fileInfo.deepgram = await this.transcribeDeepgram(fileInfo.path);
+			console.log("Deepgram transcript:");
+			console.dir(fileInfo.deepgram, { depth: null });
+		}
 
 		await this.cleanTmp();
+
+		// Capture the transcription stage's time taken in milliseconds
+		stageDurations.transcription =
+			Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Transcription stage duration: ${stageDurations.transcription}ms (${
+				stageDurations.transcription / 1000
+			} seconds)`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Transcript Cleanup Stage -- */
 
 		const chatModel = this.chat_model.includes("gpt-4-32")
 			? "gpt-4-32k"
@@ -2023,7 +2239,11 @@ export default {
 
 		console.log(`Max tokens per summary chunk: ${maxTokens}`);
 
-		fileInfo.full_transcript = await this.combineWhisperChunks(fileInfo.whisper);
+		// Set the full transcript based on which transcription service was used
+		fileInfo.full_transcript =
+			this.transcription_service === "OpenAI"
+				? await this.combineWhisperChunks(fileInfo.whisper)
+				: fileInfo.deepgram.raw_transcript;
 
 		fileInfo.longest_gap = this.findLongestPeriodGap(
 			fileInfo.full_transcript,
@@ -2039,12 +2259,48 @@ export default {
 			);
 		}
 
+		// Capture the transcript cleanup stage's time taken in milliseconds
+		stageDurations.transcriptCleanup =
+			Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Transcript cleanup stage duration: ${stageDurations.transcriptCleanup}ms`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Moderation Stage (Optional) -- */
+
 		if (this.disable_moderation_check === false) {
-			console.log(`Modederation check has been enabled. Running the moderation check...`);
+			console.log(
+				`Modederation check has been enabled. Running the moderation check...`
+			);
 			await this.moderationCheck(fileInfo.full_transcript, openai);
+
+			// Capture the moderation stage's time taken in milliseconds and seconds
+			stageDurations.moderation =
+				Number(process.hrtime.bigint() - previousTime) / 1e6;
+			console.log(
+				`Moderation stage duration: ${stageDurations.moderation}ms (${
+					stageDurations.moderation / 1000
+				} seconds)`
+			);
+			console.log(
+				`Total duration so far: ${totalDuration(stageDurations)}ms (${
+					totalDuration(stageDurations) / 1000
+				} seconds)`
+			);
+			previousTime = process.hrtime.bigint();
 		} else {
-			console.log(`Moderation check has been disabled. Moderation will not be performed.`);
+			console.log(
+				`Moderation check has been disabled. Moderation will not be performed.`
+			);
 		}
+
+		/* -- Summary Stage -- */
 
 		const encodedTranscript = encode(fileInfo.full_transcript);
 		console.log(
@@ -2100,6 +2356,22 @@ export default {
 			fileInfo.summary[0].model,
 			"Summary"
 		);
+
+		// Capture the summary stage's time taken in milliseconds
+		stageDurations.summary = Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Summary stage duration: ${stageDurations.summary}ms (${
+				stageDurations.summary / 1000
+			} seconds)`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Translation Stage (Optional) -- */
 
 		if (this.summary_language && this.summary_language !== "") {
 			console.log(
@@ -2164,8 +2436,25 @@ export default {
 				console.log(
 					`Total tokens used in the translation process: ${translatedTranscript.usage.prompt_tokens} prompt tokens and ${translatedTranscript.usage.completion_tokens} completion tokens.`
 				);
+
+				// Capture the translation stage's time taken in milliseconds
+				stageDurations.translation =
+					Number(process.hrtime.bigint() - previousTime) / 1e6;
+				console.log(
+					`Translation stage duration: ${stageDurations.translation}ms (${
+						stageDurations.translation / 1000
+					} seconds)`
+				);
+				console.log(
+					`Total duration so far: ${totalDuration(stageDurations)}ms (${
+						totalDuration(stageDurations) / 1000
+					} seconds)`
+				);
+				previousTime = process.hrtime.bigint();
 			}
 		}
+
+		/* -- Notion Creation Stage -- */
 
 		fileInfo.notion_response = await this.createNotionPage(
 			this.steps,
@@ -2177,12 +2466,50 @@ export default {
 			...(fileInfo.language ? [fileInfo.language] : [])
 		);
 
+		// Capture the Notion creation stage's time taken in milliseconds
+		stageDurations.notionCreation =
+			Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Notion creation stage duration: ${stageDurations.notionCreation}ms (${
+				stageDurations.notionCreation / 1000
+			} seconds)`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		/* -- Notion Update Stage -- */
+
 		fileInfo.updated_notion_response = await this.updateNotionPage(
 			notion,
 			fileInfo.notion_response
 		);
 
 		console.log(`All info successfully sent to Notion.`);
+
+		// Capture the Notion update stage's time taken in milliseconds
+		stageDurations.notionUpdate =
+			Number(process.hrtime.bigint() - previousTime) / 1e6;
+		console.log(
+			`Notion update stage duration: ${stageDurations.notionUpdate}ms (${
+				stageDurations.notionUpdate / 1000
+			} seconds)`
+		);
+		console.log(
+			`Total duration so far: ${totalDuration(stageDurations)}ms (${
+				totalDuration(stageDurations) / 1000
+			} seconds)`
+		);
+		previousTime = process.hrtime.bigint();
+
+		// Add total duration to stageDurations
+		stageDurations.total = totalDuration(stageDurations);
+
+		// Add performance data to fileInfo
+		fileInfo.performance = stageDurations;
 
 		return fileInfo;
 	},
