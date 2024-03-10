@@ -1,26 +1,41 @@
-import { Client } from "@notionhq/client";
-import Bottleneck from "bottleneck";
-import OpenAI from "openai";
-import { encode, decode } from "gpt-3-encoder";
-import stream from "stream";
-import { promisify } from "util";
-import fs from "fs";
-import got from "got";
-import { parseFile } from "music-metadata";
-import { inspect } from "util";
-import { join, extname } from "path";
-import { exec } from "child_process";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import natural from "natural";
-import retry from "async-retry";
-import lang from "./helpers/languages.mjs";
-import common from "./helpers/common.mjs";
-import translation from "./helpers/translate-transcript.mjs";
-import openaiOptions from "./helpers/openai-options.mjs";
-import { franc, francAll } from "franc";
-import EMOJI from "./helpers/emoji.mjs";
-import { createClient } from "@deepgram/sdk";
-import { webvtt } from "@deepgram/captions";
+/* -- Imports -- */
+
+// Transcription and LLM clients
+import { createClient } from "@deepgram/sdk"; // Deepgram SDK
+import { webvtt } from "@deepgram/captions"; // Deepgram WebVTT formatter
+import OpenAI from "openai"; // OpenAI SDK
+
+// Other clients
+import { Client } from "@notionhq/client"; // Notion SDK
+
+// Audio utils
+import { parseFile } from "music-metadata"; // Audio duration parser
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg"; // ffmpeg
+
+// Text utils
+import natural from "natural"; // Sentence tokenization
+import { franc, francAll } from "franc"; // Language detection
+import { encode, decode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
+
+// Rate limiting and error handling
+import Bottleneck from "bottleneck"; // Concurrency handler
+import retry from "async-retry"; // Retry handler
+
+// Node.js utils
+import stream from "stream"; // Stream handling
+import { promisify } from "util"; // Promisify
+import fs from "fs"; // File system
+import got from "got"; // HTTP requests
+import { inspect } from "util"; // Object inspection
+import { join, extname } from "path"; // Path handling
+import { exec } from "child_process"; // Shell commands
+
+// Project utils
+import lang from "./helpers/languages.mjs"; // Language codes
+import common from "./helpers/common.mjs"; // Common functions
+import translation from "./helpers/translate-transcript.mjs"; // Transcript translation
+import openaiOptions from "./helpers/openai-options.mjs"; // OpenAI options
+import EMOJI from "./helpers/emoji.mjs"; // Emoji list
 
 const execAsync = promisify(exec);
 
@@ -69,7 +84,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.21",
+	version: "0.7.22",
 	type: "action",
 	props: {
 		notion: {
@@ -240,6 +255,29 @@ export default {
 				deepgram: {
 					type: "app",
 					app: "deepgram",
+				},
+				deepgram_model: {
+					type: "string",
+					label: "Deepgram Model",
+					description:
+						"Select the model you would like to use. Defaults to **nova-2-general**.",
+					default: "nova-2-general",
+					options: [
+						"nova-2-general",
+						"nova-2-medical",
+						"nova-2-finance",
+						"nova-2-meeting",
+						"nova-2-phonecall",
+						"nova-2-voicemail",
+						"nova-2-video",
+						"nova-2-automotive",
+						"nova-general",
+						"whisper-tiny",
+						"whisper-base",
+						"whisper-small",
+						"whisper-medium",
+						"whisper-large",
+					],
 				},
 			}),
 			advanced_options: {
@@ -608,10 +646,11 @@ export default {
 			const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
 				fs.createReadStream(file),
 				{
-					model: "whisper",
+					model: this.deepgram_model ?? "nova-2-general",
 					smart_format: true,
+					punctuate: true,
 					detect_language: true,
-					diarize: true,
+					// diarize: true,
 					numerals: false,
 					// keywords: [{ word: "Flylighter", boost: 1.5 }],
 				}
