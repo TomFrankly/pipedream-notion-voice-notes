@@ -84,7 +84,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.22",
+	version: "0.7.26",
 	type: "action",
 	props: {
 		notion: {
@@ -172,6 +172,18 @@ export default {
 			(k) => properties[k].type === "select"
 		);
 
+		const dateProps = Object.keys(properties).filter(
+			(k) => properties[k].type === "date"
+		);
+
+		const textProps = Object.keys(properties).filter(
+			(k) => properties[k].type === "rich_text"
+		);
+
+		const urlProps = Object.keys(properties).filter(
+			(k) => properties[k].type === "url"
+		);
+
 		const props = {
 			noteTitle: {
 				type: "string",
@@ -179,7 +191,23 @@ export default {
 				description: `Select the title property for your notes. By default, it is called **Name**.`,
 				options: titleProps.map((prop) => ({ label: prop, value: prop })),
 				optional: false,
+				reloadProps: true,
 			},
+			...(this.noteTitle && {
+				noteTitleValue: {
+					type: "string",
+					label: "Note Title Value",
+					description:
+						'Choose the value for your note title. Defaults to an AI-generated title based off of the first summarized chunk from your transcription. You can also choose to use the audio file name, or both. If you pick both, the title will be in the format "File Name – AI Title".\n\n**Advanced:** You can also construct a custom title by choosing the *Enter a custom expression* tab and building an expression that evaluates to a string.',
+					options: [
+						"AI Generated Title",
+						"Audio File Name",
+						'Both ("File Name – AI Title")',
+					],
+					default: "AI Generated Title",
+					optional: true,
+				},
+			}),
 			noteDuration: {
 				type: "string",
 				label: "Note Duration",
@@ -229,6 +257,30 @@ export default {
 					optional: true,
 				},
 			}),
+			noteDate: {
+				type: "string",
+				label: "Note Date",
+				description:
+					"Select a date property for your note. This property will be set to the date the audio file was created.",
+				options: dateProps.map((prop) => ({ label: prop, value: prop })),
+				optional: true,
+			},
+			noteFileName: {
+				type: "string",
+				label: "Note File Name",
+				description:
+					"Select a text-type property for your note's file name. This property will store the name of the audio file.",
+				options: textProps.map((prop) => ({ label: prop, value: prop })),
+				optional: true,
+			},
+			noteFileLink: {
+				type: "string",
+				label: "Note File Link",
+				description:
+					"Select a URL-type property for your note's file link. This property will store a link to the audio file.",
+				options: urlProps.map((prop) => ({ label: prop, value: prop })),
+				optional: true,
+			},
 			chat_model: {
 				type: "string",
 				label: "ChatGPT Model",
@@ -246,7 +298,7 @@ export default {
 				type: "string",
 				label: "Transcription Service",
 				description:
-					"Choose the service to use for transcription. By default, OpenAI's Whisper service is used, which uses your OpenAI API key. If you choose to transcribe with [Deepgram](https://deepgram.com/), you'll need to provide a Deepgram API key in the property that appears after you select Deepgram. **Note: Deepgram transcription is in beta and may not work as expected.**",
+					"Choose the service to use for transcription. By default, OpenAI's Whisper service is used, which uses your OpenAI API key. If you choose to transcribe with [Deepgram](https://deepgram.com/), you'll need to provide a Deepgram API key in the property that appears after you select Deepgram. \n\n**Note: Deepgram transcription is in beta and may not work as expected.**",
 				options: ["OpenAI", "Deepgram"],
 				default: "OpenAI",
 				reloadProps: true,
@@ -358,7 +410,7 @@ export default {
 			}
 		},
 		...translation.methods,
-		async downloadToTmp(fileLink, filePath) {
+		async downloadToTmp(fileLink, filePath, fileName) {
 			try {
 				// Define the mimetype
 				const mime = filePath.match(/\.\w+$/)[0];
@@ -383,6 +435,7 @@ export default {
 
 				// Create a results object
 				const results = {
+					file_name: fileName,
 					path: tmpPath,
 					mime: mime,
 				};
@@ -453,11 +506,15 @@ export default {
 				let errorText;
 
 				if (/connection error/i.test(error.message)) {
-					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
+					errorText = `PLEASE READ THIS ENTIRE ERROR MESSAGE.
+					
+					An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
 					
 					If the full error below says "Unidentified connection error", please double-check that you have entered valid billing info in your OpenAI account. Afterward, generate a new API key and enter it in the OpenAI app here in Pipedream. Then, try running the workflow again.
+
+					IF THAT DOES NOT WORK, IT MEANS OPENAI'S SERVERS ARE OVERLOADED RIGHT NOW. "Connection error" means OpenAI's servers simply rejected the request. Please come back and retry the workflow later.
 					
-					If that does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`;
+					If retrying later does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`;
 				} else if (/Invalid file format/i.test(error.message)) {
 					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
 
@@ -695,7 +752,7 @@ export default {
 				if (clearedLine.match(/^\d{2}:\d{2}:\d{2}.\d{3}.*/)) {
 					// Keep only the start timestamp
 					const timestampParts = clearedLine.split(" --> ");
-					console.log(timestampParts);
+					//console.log(timestampParts);
 					formattedLines.push(timestampParts[0]);
 				}
 				// Check and format speaker lines
@@ -1211,6 +1268,9 @@ export default {
 				resultsArray.push(response);
 			}
 
+			// Create a variable for the AI-generated title
+			const AI_generated_title = resultsArray[0]?.choice?.title;
+
 			let chatResponse = resultsArray.reduce(
 				(acc, curr) => {
 					if (!curr.choice) return acc;
@@ -1228,7 +1288,7 @@ export default {
 					return acc;
 				},
 				{
-					title: resultsArray[0]?.choice?.title,
+					title: AI_generated_title ?? "No title found",
 					sentiment: this.summary_options.includes("Sentiment")
 						? resultsArray[0]?.choice?.sentiment
 						: undefined,
@@ -1465,19 +1525,6 @@ export default {
 			cost,
 			language
 		) {
-			let mp3Link;
-			if (steps.trigger.event.webViewLink) {
-				// Google Drive web link path
-				mp3Link = steps.trigger.event.webViewLink;
-			} else if (steps.trigger.event.webUrl) {
-				// MS OneDrive web link path
-				mp3Link = steps.trigger.event.webUrl;
-			} else {
-				mp3Link = encodeURI(
-					"https://www.dropbox.com/home" + steps.trigger.event.path_lower
-				);
-			}
-
 			const today = new Date();
 			const year = today.getFullYear();
 			const month = String(today.getMonth() + 1).padStart(2, "0");
@@ -1485,6 +1532,25 @@ export default {
 			const date = `${year}-${month}-${day}`;
 
 			const meta = formatted_chat;
+
+			// Construct the title based on the user's title setting
+			const AI_generated_title = formatted_chat.title;
+			let noteTitle = "";
+			if (this.noteTitleValue == 'Both ("File Name – AI Title")') {
+				noteTitle = `${config.fileName} – ${AI_generated_title}`;
+			} else if (this.noteTitleValue == "Audio File Name") {
+				noteTitle = config.fileName;
+			} else if (
+				this.noteTitleValue == "AI Generated Title" ||
+				!this.noteTitleValue
+			) {
+				// Default to AI Generated Title
+				noteTitle = AI_generated_title;
+			} else {
+				// Allow for custom title value
+				noteTitle = this.noteTitleValue;
+			}
+			meta.title = noteTitle;
 
 			meta.transcript = paragraphs.transcript;
 			if (paragraphs.summary && paragraphs.summary.length > 0) {
@@ -1572,6 +1638,32 @@ export default {
 							number: totalCost,
 						},
 					}),
+					...(this.noteDate && {
+						[this.noteDate]: {
+							date: {
+								start: date,
+							},
+						},
+					}),
+					...(this.noteFileLink && {
+						[this.noteFileLink]: {
+							url: config.fileLink,
+						},
+					}),
+					...(this.noteFileName && {
+						[this.noteFileName]: {
+							rich_text: [
+								{
+									text: {
+										content: config.fileName,
+										link: {
+											url: config.fileLink,
+										},
+									},
+								},
+							],
+						},
+					}),
 				},
 				children: [
 					{
@@ -1599,7 +1691,7 @@ export default {
 									text: {
 										content: "Listen to the original recording here.",
 										link: {
-											url: mp3Link,
+											url: config.fileLink,
 										},
 									},
 								},
@@ -2123,6 +2215,8 @@ export default {
 
 		const fileInfo = {};
 
+		fileInfo.log_settings = logSettings;
+
 		// Capture the setup stage's time taken in milliseconds
 		stageDurations.setup = Number(process.hrtime.bigint() - previousTime) / 1e6;
 		console.log(`Setup stage duration: ${stageDurations.setup}ms`);
@@ -2137,12 +2231,16 @@ export default {
 
 		if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
-			fileInfo.path = `/tmp/${this.steps.google_drive_download.$return_value.name.replace(
-				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
-				""
-			)}`;
+			fileInfo.cloud_app = "Google Drive";
+			fileInfo.file_name =
+				this.steps.google_drive_download.$return_value.name.replace(
+					/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
+					""
+				);
+			fileInfo.path = `/tmp/${fileInfo.file_name}`;
 			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.link = this.steps.trigger.event.webViewLink;
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
@@ -2152,12 +2250,15 @@ export default {
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
-			fileInfo.path = `/tmp/${this.steps.download_file.$return_value.name.replace(
+			fileInfo.cloud_app = "Google Drive";
+			fileInfo.file_name = this.steps.download_file.$return_value.name.replace(
 				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
 				""
-			)}`;
+			);
+			fileInfo.path = `/tmp/${fileInfo.file_name}`;
 			console.log(`File path of Google Drive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.link = this.steps.trigger.event.webViewLink;
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
@@ -2170,12 +2271,15 @@ export default {
 			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
+			fileInfo.cloud_app = "OneDrive";
 			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(
 				/[\?$#&\{\}\[\]<>\*!@:\+\\]/g,
 				""
 			);
+			fileInfo.file_name = fileInfo.path.replace(/^\/tmp\//, "");
 			console.log(`File path of MS OneDrive file: ${fileInfo.path}`);
 			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.link = this.steps.trigger.event.webUrl;
 			if (config.supportedMimes.includes(fileInfo.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
@@ -2185,18 +2289,25 @@ export default {
 			}
 		} else {
 			// Dropbox method
+			fileInfo.cloud_app = "Dropbox";
 			Object.assign(
 				fileInfo,
 				await this.downloadToTmp(
 					this.steps.trigger.event.link,
 					this.steps.trigger.event.path_lower,
-					this.steps.trigger.event.size
+					this.steps.trigger.event.name
 				)
+			);
+
+			fileInfo.link = encodeURI(
+				"https://www.dropbox.com/home" + this.steps.trigger.event.path_lower
 			);
 			console.log(`File path of Dropbox file: ${fileInfo.path}`);
 		}
 
 		config.filePath = fileInfo.path;
+		config.fileName = fileInfo.file_name;
+		config.fileLink = fileInfo.link;
 
 		fileInfo.duration = await this.getDuration(fileInfo.path);
 
@@ -2549,6 +2660,16 @@ export default {
 
 		// Add performance data to fileInfo
 		fileInfo.performance = stageDurations;
+
+		// Create a formatted performance log that expresses the performance values as strings with ms and second labels
+		fileInfo.performance_formatted = Object.fromEntries(
+			Object.entries(fileInfo.performance).map(([stageName, stageDuration]) => [
+				stageName,
+				stageDuration > 1000
+					? `${(stageDuration / 1000).toFixed(2)} seconds`
+					: `${stageDuration.toFixed(2)}ms`,
+			])
+		);
 
 		return fileInfo;
 	},
