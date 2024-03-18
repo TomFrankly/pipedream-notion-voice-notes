@@ -30,7 +30,7 @@ export default {
         disable_moderation_check: {
             type: "boolean",
             label: "Disable Moderation Check",
-            description: `By default, this workflow will **not** check your transcript for inappropriate content using OpenAI's Moderation API. If you'd like to enable this check, set this option to **false**.\n\nThis option may be subject to low rate limits within your OpenAI account, which is why it is disabled by default. You can check your current rate limits by visiting your account's [rate limits page](https://platform.openai.com/account/rate-limits) and checking the limit for the **text-moderation-stable** endpoint.`,
+            description: `By default, this workflow will **not** check your transcript for inappropriate content using OpenAI's Moderation API. If you'd like to enable this check, set this option to **false**.\n\nThis option may be subject to low rate limits within your OpenAI account, which is why it is disabled by default. You can check your current rate limits by visiting your account's [rate limits page](https://platform.openai.com/account/rate-limits) and checking the limit for the **text-moderation-stable** endpoint.\n\n**Note:** Moderation is only available if you have a valid OpenAI key connected. It is also very touchy, and will flag content that is not inappropriate. I generally don't recommend using this option.`,
             optional: true,
             default: true,
         },

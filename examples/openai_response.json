@@ -1,0 +1,23 @@
+{
+	"id": "chatcmpl-934EN4XFjHzVrbVQgHBq2VdFhjNC5",
+	"object": "chat.completion",
+	"created": 1710518275,
+	"model": "gpt-3.5-turbo-1106",
+	"choices": [
+		{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "{\n  \"title\": \"Notion Formula Bootcamp\",\n  \"summary\": \"The Notion Formula Bootcamp provides a quick win by creating two useful Notion formulas: one to convert decimeters to meters and one to convert hectograms into kilograms. It aims to motivate learners and provide exposure to important concepts. The course breaks down the height and meters formula, explaining the six different formula principles involved.\",\n  \"main_points\": [\n    \"Introduction of the Notion Formula Bootcamp and the quick win concept\",\n    \"Creation of two useful Notion formulas: one for converting decimeters to meters and one for converting hectograms to kilograms\",\n    \"Explanation of six different formula principles used in the course\"\n  ],\n  \"action_items\": [\n    \"Duplicate the Pokedex template into your workspace and navigate to the Articuno page (today)\",\n    \"Challenge: Create a formula for converting weight into kilograms (after following the 15-minute rule)\"\n  ],\n  \"references\": [\n    \"Notion database guide\",\n    \"MDN web docs\"\n  ]\n}"
+			},
+			"logprobs": null,
+			"finish_reason": "stop"
+		}
+	],
+	"usage": {
+		"prompt_tokens": 2505,
+		"completion_tokens": 216,
+		"total_tokens": 2721
+	},
+	"system_fingerprint": "fp_4aaaf0dc94"
+}

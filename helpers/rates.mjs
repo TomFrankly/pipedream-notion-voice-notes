@@ -10,26 +10,32 @@ const RATES = {
                     prompt: 0.01,
                     completion: 0.03,
                     window: 128000,
-                    output: 4069,
+                    output: 4096,
                 },
                 "gpt-4-turbo-preview": {
                     prompt: 0.01,
                     completion: 0.03,
                     window: 128000,
-                    output: 4069,
+                    output: 4096,
                 },
                 "gpt-4-1106-preview": {
                     prompt: 0.01,
                     completion: 0.03,
                     window: 128000,
-                    output: 4069,
+                    output: 4096,
                 },
                 "gpt-4": {
                     prompt: 0.03,
                     completion: 0.06,
                     window: 8192,
-                    output: 8192,
+                    output: 4096,
                 },
+                "gpt-4-32": {
+                    prompt: 0.06,
+                    completion: 0.12,
+                    window: 32768,
+                    output: 4096,
+                }
             },
             "gpt-3.5": {
                 "gpt-3.5-turbo-0125": {
@@ -47,7 +53,7 @@ const RATES = {
                 "gpt-3.5-turbo": { // Update to match 0125 on Feb 16, 2024
                     prompt: 0.0005,
                     completion: 0.0015,
-                    window: 4096,
+                    window: 16385,
                     output: 4096,
                 },
             },
@@ -55,6 +61,30 @@ const RATES = {
         audio: {
             whisper: {
                 completion: 0.006, // $0.006 per minute
+            }
+        }
+    },
+    anthropic: {
+        text: {
+            claude: {
+                "claude-3-opus-20240229": {
+                    prompt: 0.015,
+                    completion: 0.075,
+                    window: 200000,
+                    output: 4096,
+                },
+                "claude-3-sonnet-20240229": {
+                    prompt: 0.003,
+                    completion: 0.015,
+                    window: 200000,
+                    output: 4096,
+                },
+                "claude-3-haiku-20240307": {
+                    prompt: 0.00025,
+                    completion: 0.00125,
+                    window: 200000,
+                    output: 4096,
+                } 
             }
         }
     },

@@ -1,0 +1,19 @@
+{
+    "id": "", // The ID from the response
+    "model": "", // The LLM model
+    "provider": "", // The LLM provider, based on model and looked up from a list
+    "choices": [
+        {
+            "index": 0, // The index of the choice,
+            "message": {
+                "role": "assistant",
+                "content": "" // The message content
+            }
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 0, // The number of tokens used for the prompt
+        "completion_tokens": 0, // The number of tokens used for the completion
+        "total_tokens": 0, // prompt_tokens + completion_tokens, may need a setter
+    }
+}

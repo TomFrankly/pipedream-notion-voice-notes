@@ -1,0 +1,18 @@
+{
+	"id": "msg_01LPvActkXhpRYDCHHucRm3i",
+	"type": "message",
+	"role": "assistant",
+	"content": [
+		{
+			"type": "text",
+			"text": "{\n  \"title\": \"Notion Formula Bootcamp\",\n  \"summary\": \"This transcript covers the introduction to a Notion Formula Bootcamp course. The instructor starts by explaining the importance of quick wins for successful learning and then guides the learner through creating their first Notion formula to convert Pokemon height and weight values from the PokeAPI to more readable meters and kilograms. The instructor breaks down the key principles used in the formula, including functions, type conversion, property references, operators, and string concatenation. The learner is then challenged to create a similar formula for converting weight values, with the instructor providing some hints to get them started.\",\n  \"main_points\": [\n    \"The importance of quick wins for motivating and building confidence in long-term learning.\",\n    \"Creating Notion formulas to convert Pokemon height and weight values from the PokeAPI to more readable metrics.\",\n    \"Explaining key Notion formula principles, including functions, type conversion, property references, operators, and string concatenation.\"\n  ],\n  \"action_items\": [\n    \"Create a Notion formula to convert Pokemon weight values from hectograms to kilograms (2023-04-06)\",\n    \"Review the Notion formula reference guide linked in the transcript to deepen understanding of the formula principles covered (2023-04-06)\"\n  ],\n  \"references\": [\n    \"PokeAPI, a resource that provides data on every Pokemon in existence.\",\n    \"Notion formula reference guide, a detailed resource for learning about various Notion formula principles.\"\n  ]\n}"
+		}
+	],
+	"model": "claude-3-haiku-20240307",
+	"stop_reason": "end_turn",
+	"stop_sequence": null,
+	"usage": {
+		"input_tokens": 2664,
+		"output_tokens": 347
+	}
+}
