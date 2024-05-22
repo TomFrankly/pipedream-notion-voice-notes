@@ -84,7 +84,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "notion-voice-notes",
-	version: "0.7.26",
+	version: "0.7.29",
 	type: "action",
 	props: {
 		notion: {
@@ -129,12 +129,22 @@ export default {
 				});
 				const response = await openai.models.list();
 
-				results = response.data.filter(
+				const initialResults = response.data.filter(
 					(model) =>
-						model.id.includes("gpt") &&
-						!model.id.endsWith("0301") &&
-						!model.id.endsWith("0314")
-				);
+						model.id.includes("gpt")
+				).sort((a, b) => a.id.localeCompare(b.id));
+
+				const preferredModels = ["gpt-3.5-turbo", "gpt-4o", "gpt-4-turbo"]
+
+				const preferredItems = []
+				for (const model of preferredModels) {
+					const index = initialResults.findIndex((result) => result.id === model)
+					if (index !== -1) {
+						preferredItems.push(initialResults.splice(index, 1)[0])
+					}
+				}
+
+				results = [...preferredItems, ...initialResults];
 			} catch (err) {
 				console.error(
 					`Encountered an error with OpenAI: ${err} – Please check that your API key is still valid.`
@@ -2189,9 +2199,13 @@ export default {
 		console.log("Checking if the user set languages...");
 		this.setLanguages();
 
+		console.log("Setting the transcription service...");
+		config.transcription_service = this.transcription_service ?? "OpenAI";
+
 		const logSettings = {
+			"Action Version:": this.version ?? "No version detected",
 			"Chat Model": this.chat_model,
-			"Transcription Service": this.transcription_service,
+			"Transcription Service": config.transcription_service,
 			"Summary Options": this.summary_options,
 			"Summary Density": this.summary_density ?? "2750 (default)",
 			Verbosity: this.verbosity ?? "Medium (default)",
@@ -2332,7 +2346,7 @@ export default {
 			apiKey: this.openai.$auth.api_key,
 		});
 
-		if (this.transcription_service === "OpenAI") {
+		if (config.transcription_service === "OpenAI") {
 			console.log(`Using OpenAI's Whisper service for transcription.`);
 			fileInfo.whisper = await this.chunkFileAndTranscribe(
 				{ file: fileInfo.path },
@@ -2341,7 +2355,7 @@ export default {
 
 			console.log("Whisper chunks array:");
 			console.dir(fileInfo.whisper, { depth: null });
-		} else if (this.transcription_service === "Deepgram") {
+		} else if (config.transcription_service === "Deepgram") {
 			console.log(`Using Deepgram for transcription.`);
 			fileInfo.deepgram = await this.transcribeDeepgram(fileInfo.path);
 			console.log("Deepgram transcript:");
@@ -2391,9 +2405,11 @@ export default {
 
 		// Set the full transcript based on which transcription service was used
 		fileInfo.full_transcript =
-			this.transcription_service === "OpenAI"
+			config.transcription_service === "OpenAI"
 				? await this.combineWhisperChunks(fileInfo.whisper)
-				: fileInfo.deepgram.raw_transcript;
+				: config.transcription_service === "Deepgram"
+				? fileInfo.deepgram.raw_transcript
+				: "No transcript available.";
 
 		fileInfo.longest_gap = this.findLongestPeriodGap(
 			fileInfo.full_transcript,
