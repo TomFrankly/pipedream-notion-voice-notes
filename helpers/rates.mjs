@@ -6,6 +6,12 @@ const RATES = {
     openai: {
         text: {
             "gpt-4": {
+                "gpt-4o": {
+                    prompt: 0.005,
+                    completion: 0.015,
+                    window: 128000,
+                    output: 4096,
+                },
                 "gpt-4-0125-preview": {
                     prompt: 0.01,
                     completion: 0.03,
