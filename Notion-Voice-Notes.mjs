@@ -2545,9 +2545,10 @@ export default {
 			);
 
 			const detectedLanguage = await this.detectLanguage(
-				fileInfo.paragraphs.transcript[0],
 				openai,
-				this.chat_model
+				"OpenAI",
+				this.chat_model,
+				fileInfo.paragraphs.transcript[0]
 			);
 
 			fileInfo.language = {

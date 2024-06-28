@@ -43,6 +43,20 @@ export default {
 	methods: {
 		...common.methods,
 		...chat.methods,
+		/**
+		 * Detects the language of the provided text using the specified language model.
+		 *
+		 * This method uses the provided language model to analyze the text and detect
+		 * the language. It returns a JSON object containing the language name and
+		 * language code.
+		 *
+		 * @param {Object} llm - The language model client instance.
+		 * @param {string} service - The service provider, e.g., "OpenAI" or "Anthropic".
+		 * @param {string} model - The specific language model to use for detection.
+		 * @param {string} text - The text whose language needs to be detected.
+		 * @returns {Promise<Object>} - A promise that resolves to a JSON object with the detected language name and code.
+		 * @throws {Error} - Throws an error if the language detection fails.
+		 */
 		async detectLanguage(llm, service, model, text) {
 			const userPrompt = text;
 			const systemMessage = `Detect the language of the prompt, then return a valid JSON object containing the language name and language code of the text.
@@ -64,7 +78,9 @@ export default {
 						`Attempt ${attempt} for language detection failed with error: ${error.message}. Retrying...`
 				);
 			} catch (error) {
-				throw new Error(`Language detection failed with error: ${error.message}`);
+				throw new Error(
+					`Language detection failed with error: ${error.message}`
+				);
 			}
 		},
 		async formatDetectedLanguage(text) {
@@ -120,7 +136,9 @@ export default {
 				});
 
 				const translationResult = {
-					paragraphs: results.map((result) => result.choices[0].message.content),
+					paragraphs: results.map(
+						(result) => result.choices[0].message.content
+					),
 					language: language.label,
 					languageCode: language.value,
 					usage: {
@@ -136,7 +154,9 @@ export default {
 					model: results[0].model,
 				};
 
-				console.log(`Translated ${stringsArray.length} paragraphs successfully.`);
+				console.log(
+					`Translated ${stringsArray.length} paragraphs successfully.`
+				);
 				return translationResult;
 			} catch (error) {
 				console.error(error);
