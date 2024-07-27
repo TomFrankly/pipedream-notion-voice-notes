@@ -1,3 +1,5 @@
+// This 0.0.18 version not yet published to Pipdream.
+
 /* -- Imports -- */
 
 // Transcription and LLM clients
@@ -54,7 +56,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "beta-voice-notes",
-	version: "0.0.17",
+	version: "0.0.18",
 	type: "action",
 	props: {
 		notion: {
@@ -105,7 +107,7 @@ export default {
 						model.id.includes("gpt")
 				).sort((a, b) => a.id.localeCompare(b.id));
 
-				const preferredModels = ["gpt-3.5-turbo", "gpt-4o", "gpt-4-turbo"]
+				const preferredModels = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
 
 				const preferredItems = []
 				for (const model of preferredModels) {
@@ -265,8 +267,8 @@ export default {
 			chat_model: {
 				type: "string",
 				label: "ChatGPT Model",
-				description: `Select the model you would like to use.\n\nDefaults to **gpt-3.5-turbo**, which is recommended for this workflow.\n\nSwitching to the gpt-3.5-turbo-16k model will allow you to set the **summary density** option below up to 5,000 tokens, rather than gpt-3.5-turbo's max of 2,750.\n\nYou can also use **gpt-4**, which may provide more insightful summaries and lists, but it will increase the cost of the summarization step by a factor of 20 (it won't increase the cost of transcription, which is typically about 90% of the cost).`,
-				default: "gpt-3.5-turbo",
+				description: `Select the model you would like to use.\n\nDefaults to **gpt-4o-mini**, which is recommended for this workflow.`,
+				default: "gpt-4o-mini",
 				options: results.map((model) => ({
 					label: model.id,
 					value: model.id,
@@ -350,10 +352,11 @@ export default {
 					type: "string",
 					label: "Anthropic Model",
 					description:
-						"Select the Anthropic model you would like to use. Defaults to **claude-3-haiku-20240307**. Only Claude 3 models are offered.",
+						"Select the Anthropic model you would like to use. Defaults to **claude-3-haiku-20240307**. Only Claude 3/3.5 models are offered.",
 					default: "claude-3-haiku-20240307",
 					options: [
 						"claude-3-haiku-20240307",
+						"claude-3-5-sonnet-20240620",
 						"claude-3-sonnet-20240229",
 						"claude-3-opus-20240229",
 					],
@@ -374,11 +377,9 @@ export default {
 						label: "Summary Density (Advanced)",
 						description: `*It is recommended to leave this setting at its default unless you have a good understanding of how LLMs handle tokens.*\n\nSets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis will enable the script to handle longer files, as the script uses concurrent requests, and your LLM will take less time to process a chunk with fewer prompt tokens.\n\nThis does mean your summary and list will be longer, as you'll get them for each chunk. You can somewhat counteract this with the **Summary Verbosity** option.\n\n**Lowering the number here will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value depends on your chosen model, and the minimum value is 500 tokens.\n\nKeep in mind that setting a very high value will result in a very sparse summary. (E.g. with Claude models, you could set a density as high as 150,000 tokens. But this workflow will output a maxiumum of 5 items per transcript chunk for most lists. That'd be 5 items to summarize *Moby Dick*. I recommend setting a lower density so your transcript is split into smaller chunks, each of which will be summarized.\n\nIf you're using an OpenAI trial account and haven't added your billing info yet, note that you may get rate-limited due to the low requests-per-minute (RPM) rate on trial accounts.`,
 						min: 500,
-						max: this.ai_service === "Anthropic" 
-							? 150000
-							: this.chat_model === "gpt-4"
-							? 90000
-							: 10000,
+						max: MODEL_INFO[this.ai_service.toLowerCase()].text[this.model.toLowerCase()].window
+							? MODEL_INFO[this.ai_service.toLowerCase()].text[this.model.toLowerCase()].window * .75
+							: 2750,
 						default: 2750,
 						optional: true,
 					},

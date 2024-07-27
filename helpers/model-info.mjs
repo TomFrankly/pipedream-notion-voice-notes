@@ -1,10 +1,37 @@
 /**
- * This file in intended to include the latest pricing rates from OpenAI and Deepgram, list the context window and output limits for OpenAI models, and be a definitive list of available models for all workflows.
+ * @fileoverview This module contains the latest pricing rates from OpenAI, Anthropic, and Deepgram,
+ * lists the context window and output limits for LLM models, and provides a definitive
+ * list of available models for all workflows.
+ *
+ * @module MODEL_INFO
+ * @see {@link https://openai.com/api/pricing/|OpenAI Pricing}
+ * @see {@link https://platform.openai.com/docs/models|OpenAI Models}
+ * @see {@link https://deepgram.com/pricing|Deepgram Pricing}
+ * @see {@link https://docs.anthropic.com/en/docs/about-claude/models|Anthropic Models}
+ *
+ * @version 2024-07-26
+ */
+
+/**
+ * @type {Object}
+ * @readonly
  */
 
 const MODEL_INFO = {
 	openai: {
 		text: {
+			"gpt-4o": {
+				prompt: 0.005,
+				completion: 0.015,
+				window: 128000,
+				output: 4096,
+			},
+			"gpt-4o-mini": {
+				prompt: 0.00015,
+				completion: 0.0006,
+				window: 128000,
+				output: 4096,
+			},
 			"gpt-4-0125-preview": {
 				prompt: 0.01,
 				completion: 0.03,
@@ -89,6 +116,12 @@ const MODEL_INFO = {
 				completion: 0.00125,
 				window: 200000,
 				output: 4096,
+			},
+			"claude-3-5-sonnet-20240620": {
+				prompt: 0.003,
+				completion: 0.015,
+				window: 200000,
+				output: 4096, // This model has a 8,192 token limit, but this capability is in beta as of 2024-07-26
 			},
 		},
 	},
