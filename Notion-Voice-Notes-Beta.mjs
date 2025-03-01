@@ -1,5 +1,3 @@
-// This 0.0.18 version not yet published to Pipdream.
-
 /* -- Imports -- */
 
 // Transcription and LLM clients
@@ -31,7 +29,7 @@ import fs from "fs"; // File system
 import got from "got"; // HTTP requests
 import { inspect } from "util"; // Object inspection
 import { join, extname } from "path"; // Path handling
-import { exec } from "child_process"; // Shell commands
+import { exec, spawn } from "child_process"; // Shell commands
 
 // Project utils
 import lang from "./helpers/languages.mjs"; // Language codes
@@ -84,10 +82,20 @@ export default {
 				"Arguments",
 				"Related Topics",
 				"Chapters",
-				"Sentiment",
 			],
 			default: ["Summary", "Main Points", "Action Items", "Follow-up Questions"],
 			optional: false,
+		},
+		meta_options: {
+			type: "string[]",
+			label: "Meta Options",
+			description: `Select the meta sections you'd like to include in your note.\n\nTop Callout will create a callout that includes the date the note was created and a link to the audio file. Table of Contents will create a table of contents block. Meta will create a section at the bottom that includes cost information.`,
+			options: [
+				"Top Callout",
+				"Table of Contents",
+				"Meta",
+			],
+			default: [],
 		},
 		databaseID: common.props.databaseID,
 	},
@@ -295,9 +303,10 @@ export default {
 					type: "string",
 					label: "Deepgram Model",
 					description:
-						"Select the model you would like to use. Defaults to **nova-2-general**.",
-					default: "nova-2-general",
+						"Select the model you would like to use. Defaults to **nova-3-general**.",
+					default: "nova-3-general",
 					options: [
+						"nova-3-general",
 						"nova-2-general",
 						"nova-2-medical",
 						"nova-2-finance",
@@ -352,13 +361,15 @@ export default {
 					type: "string",
 					label: "Anthropic Model",
 					description:
-						"Select the Anthropic model you would like to use. Defaults to **claude-3-haiku-20240307**. Only Claude 3/3.5 models are offered.",
-					default: "claude-3-haiku-20240307",
+						"Select the Anthropic model you would like to use. Defaults to **claude-3-5-haiku-20241022**. Only Claude 3/3.5 models are offered.",
+					default: "claude-3-5-haiku-20241022",
 					options: [
-						"claude-3-haiku-20240307",
-						"claude-3-5-sonnet-20240620",
+						"claude-3-5-haiku-20241022",
+						"claude-3-5-sonnet-20241022",
+						"claude-3-7-sonnet-20250219",
 						"claude-3-sonnet-20240229",
 						"claude-3-opus-20240229",
+						"claude-3-haiku-20240307"
 					],
 				},
 			}),
@@ -405,9 +416,9 @@ export default {
 		...chat.methods,
 		...translation.methods,
 		async checkSize(fileSize) {
-			if (fileSize > 200000000) {
+			if (fileSize > 500000000) {
 				throw new Error(
-					`File is too large. Files must be under 200mb and one of the following file types: ${config.supportedMimes.join(
+					`File is too large. Files must be under 500mb and one of the following file types: ${config.supportedMimes.join(
 						", "
 					)}.
 					
@@ -511,6 +522,9 @@ export default {
 			await execAsync(`mkdir -p "${outputDir}"`);
 			await execAsync(`rm -f "${outputDir}/*"`);
 
+			let files
+
+			// Chunk the files
 			try {
 				console.log(`Chunking file: ${file}`);
 				await this.chunkFile({
@@ -518,8 +532,16 @@ export default {
 					outputDir,
 				});
 
-				const files = await fs.promises.readdir(outputDir);
+				files = await fs.promises.readdir(outputDir);
+			} catch (error) {
+				await this.cleanTmp();
 
+				console.error(`An error occured while chunking the file: ${error}`);
+				throw new Error(`An error occured while chunking the file: ${error}`);
+			}
+
+			// Transcribe the chunks
+			try {
 				console.log(`Chunks created successfully. Transcribing chunks: ${files}`);
 				return await this.transcribeFiles(
 					{
@@ -536,7 +558,7 @@ export default {
 				if (/connection error/i.test(error.message)) {
 					errorText = `PLEASE READ THIS ENTIRE ERROR MESSAGE.
 					
-					An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
+					An error occured while sending the chunks to OpenAI.
 					
 					If the full error below says "Unidentified connection error", please double-check that you have entered valid billing info in your OpenAI account. Afterward, generate a new API key and enter it in the OpenAI app here in Pipedream. Then, try running the workflow again.
 
@@ -544,11 +566,11 @@ export default {
 					
 					If retrying later does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`;
 				} else if (/Invalid file format/i.test(error.message)) {
-					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.
+					errorText = `An error occured while sending the chunks to OpenAI.
 
 					Note: OpenAI officially supports .m4a files, but some apps create .m4a files that OpenAI can't read. If you're using an .m4a file, try converting it to .mp3 and running the workflow again.`;
 				} else {
-					errorText = `An error occured while attempting to split the file into chunks, or while sending the chunks to OpenAI.`;
+					errorText = `An error occured while sending the chunks to OpenAI.`;
 				}
 
 				throw new Error(
@@ -576,30 +598,93 @@ export default {
 				return;
 			}
 
-			const { stdout: durationOutput } = await execAsync(
-				`${ffmpegPath} -i "${file}" 2>&1 | grep "Duration"`
-			);
-			const duration = durationOutput.match(/\d{2}:\d{2}:\d{2}\.\d{2}/s)[0];
-			const [hours, minutes, seconds] = duration.split(":").map(parseFloat);
-
-			const totalSeconds = hours * 60 * 60 + minutes * 60 + seconds;
-			const segmentTime = Math.ceil(totalSeconds / numberOfChunks);
-
-			const command = `${ffmpegPath} -i "${file}" -f segment -segment_time ${segmentTime} -c copy -loglevel verbose "${outputDir}/chunk-%03d${ext}"`;
-			console.log(`Spliting file into chunks with ffmpeg command: ${command}`);
+			// Get duration using spawn instead of exec
+			const getDuration = () => {
+				return new Promise((resolve, reject) => {
+					let durationOutput = '';
+					const ffprobe = spawn(ffmpegPath, ['-i', file]);
+					
+					ffprobe.stderr.on('data', (data) => {
+						durationOutput += data.toString();
+					});
+					
+					ffprobe.on('close', (code) => {
+						try {
+							const durationMatch = durationOutput.match(/Duration: (\d{2}:\d{2}:\d{2}\.\d{2})/);
+							if (durationMatch && durationMatch[1]) {
+								resolve(durationMatch[1]);
+							} else {
+								reject(new Error('Could not determine file duration'));
+							}
+						} catch (error) {
+							reject(error);
+						}
+					});
+					
+					ffprobe.on('error', (err) => {
+						reject(err);
+					});
+				});
+			};
 
 			try {
-				const { stdout: chunkOutput, stderr: chunkError } = await execAsync(
-					command
-				);
+				const duration = await getDuration();
+				const [hours, minutes, seconds] = duration.split(":").map(parseFloat);
 
-				if (chunkOutput) {
-					console.log(`stdout: ${chunkOutput}`);
-				}
+				const totalSeconds = hours * 60 * 60 + minutes * 60 + seconds;
+				const segmentTime = Math.ceil(totalSeconds / numberOfChunks);
 
-				if (chunkError) {
-					console.log(`stderr: ${chunkError}`);
-				}
+				console.log(`File duration: ${duration}, segment time: ${segmentTime} seconds`);
+				
+				// Use spawn for the chunking operation
+				const chunkFile = () => {
+					return new Promise((resolve, reject) => {
+						const args = [
+							'-i', file,
+							'-f', 'segment',
+							'-segment_time', segmentTime.toString(),
+							'-c', 'copy',
+							'-loglevel', 'verbose',
+							`${outputDir}/chunk-%03d${ext}`
+						];
+						
+						console.log(`Splitting file into chunks with ffmpeg command: ${ffmpegPath} ${args.join(' ')}`);
+						
+						const ffmpeg = spawn(ffmpegPath, args);
+						
+						let stdoutData = '';
+						let stderrData = '';
+						
+						ffmpeg.stdout.on('data', (data) => {
+							const chunk = data.toString();
+							stdoutData += chunk;
+							console.log(`ffmpeg stdout: ${chunk}`);
+						});
+						
+						ffmpeg.stderr.on('data', (data) => {
+							const chunk = data.toString();
+							stderrData += chunk;
+							// Only log important messages to avoid excessive output
+							if (chunk.includes('Opening') || chunk.includes('Output') || chunk.includes('Error')) {
+								console.log(`ffmpeg stderr: ${chunk}`);
+							}
+						});
+						
+						ffmpeg.on('close', (code) => {
+							if (code === 0) {
+								resolve({ stdout: stdoutData, stderr: stderrData });
+							} else {
+								reject(new Error(`ffmpeg process exited with code ${code}: ${stderrData}`));
+							}
+						});
+						
+						ffmpeg.on('error', (err) => {
+							reject(err);
+						});
+					});
+				};
+				
+				await chunkFile();
 
 				const chunkFiles = await fs.promises.readdir(outputDir);
 				const chunkCount = chunkFiles.filter((file) =>
@@ -1520,7 +1605,7 @@ export default {
 					}),
 				},
 				children: [
-					{
+					...(this.meta_options.includes("Top Callout") && {
 						callout: {
 							rich_text: [
 								{
@@ -1555,12 +1640,12 @@ export default {
 							},
 							color: "blue_background",
 						},
-					},
-					{
+					}),
+					...(this.meta_options.includes("Table of Contents") && {
 						table_of_contents: {
 							color: "default",
 						},
-					},
+					}),
 				],
 			};
 
@@ -1745,23 +1830,26 @@ export default {
 				}
 			}
 
-			const metaArray = [meta["transcription-cost"], meta["chat-cost"]];
+			if (this.meta_options.includes("Meta")) {
+			
+				const metaArray = [meta["transcription-cost"], meta["chat-cost"]];
 
-			if (meta["language-check-cost"]) {
-				metaArray.push(meta["language-check-cost"]);
+				if (meta["language-check-cost"]) {
+					metaArray.push(meta["language-check-cost"]);
+				}
+
+				if (meta["translation-cost"]) {
+					metaArray.push(meta["translation-cost"]);
+				}
+
+				metaArray.push(meta["total-cost"]);
+
+				if (labeledSentiment && labeledSentiment.length > 1) {
+					metaArray.unshift(labeledSentiment);
+				}
+
+				additionalInfoHandler(metaArray, "Meta", "bulleted_list_item");
 			}
-
-			if (meta["translation-cost"]) {
-				metaArray.push(meta["translation-cost"]);
-			}
-
-			metaArray.push(meta["total-cost"]);
-
-			if (labeledSentiment && labeledSentiment.length > 1) {
-				metaArray.unshift(labeledSentiment);
-			}
-
-			additionalInfoHandler(metaArray, "Meta", "bulleted_list_item");
 
 			responseHolder.additional_info = additionalInfoArray;
 
@@ -2036,7 +2124,7 @@ export default {
 			);
 		}
 
-		console.log("Checking that file is under 300mb...");
+		console.log("Checking that file is under 500mb...");
 		await this.checkSize(this.steps.trigger.event.size);
 		console.log("File is under the size limit. Continuing...");
 
