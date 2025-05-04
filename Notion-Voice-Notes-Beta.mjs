@@ -54,13 +54,13 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "beta-voice-notes",
-	version: "0.0.18",
+	version: "0.0.26",
 	type: "action",
 	props: {
 		notion: {
 			type: "app",
 			app: "notion",
-			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
+			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
 		},
 		openai: {
 			type: "app",
@@ -96,6 +96,7 @@ export default {
 				"Meta",
 			],
 			default: [],
+			optional: true,
 		},
 		databaseID: common.props.databaseID,
 	},
@@ -388,8 +389,8 @@ export default {
 						label: "Summary Density (Advanced)",
 						description: `*It is recommended to leave this setting at its default unless you have a good understanding of how LLMs handle tokens.*\n\nSets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis will enable the script to handle longer files, as the script uses concurrent requests, and your LLM will take less time to process a chunk with fewer prompt tokens.\n\nThis does mean your summary and list will be longer, as you'll get them for each chunk. You can somewhat counteract this with the **Summary Verbosity** option.\n\n**Lowering the number here will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value depends on your chosen model, and the minimum value is 500 tokens.\n\nKeep in mind that setting a very high value will result in a very sparse summary. (E.g. with Claude models, you could set a density as high as 150,000 tokens. But this workflow will output a maxiumum of 5 items per transcript chunk for most lists. That'd be 5 items to summarize *Moby Dick*. I recommend setting a lower density so your transcript is split into smaller chunks, each of which will be summarized.\n\nIf you're using an OpenAI trial account and haven't added your billing info yet, note that you may get rate-limited due to the low requests-per-minute (RPM) rate on trial accounts.`,
 						min: 500,
-						max: MODEL_INFO[this.ai_service.toLowerCase()].text[this.model.toLowerCase()].window
-							? MODEL_INFO[this.ai_service.toLowerCase()].text[this.model.toLowerCase()].window * .75
+						max: MODEL_INFO[this.ai_service?.toLowerCase()]?.text[this.model?.toLowerCase()]?.window
+							? MODEL_INFO[this.ai_service?.toLowerCase()]?.text[this.model?.toLowerCase()]?.window * .75
 							: 2750,
 						default: 2750,
 						optional: true,
@@ -1394,6 +1395,9 @@ export default {
 			}
 
 			let audioModel = model
+			if (audioModel.includes("nova-3")) {
+				audioModel = "nova-3"
+			}
 			if (audioModel.includes("nova-2")) {
 				audioModel = "nova-2"
 			}
@@ -1417,10 +1421,17 @@ export default {
 
 			console.log(`service_lower: ${service_lower}, medium: ${medium}, audioModel: ${audioModel}, modelSize: ${modelSize}, plan: ${plan}`)
 
-			const cost = (internalDuration / 60) * MODEL_INFO[service_lower][medium][audioModel][modelSize][plan];
-			console.log(`Transcript cost: $${cost.toFixed(3).toString()}`);
+			try {
+				const cost = (internalDuration / 60) * MODEL_INFO[service_lower][medium][audioModel][modelSize][plan];
+				console.log(`Transcript cost: $${cost.toFixed(3).toString()}`);
 
-			return cost;
+				return cost;
+			} catch (e) {
+				console.warn(`Model could not be determined. Cost will be set to $0.`)
+				const cost = 0
+
+				return cost;
+			}
 		},
 		async calculateGPTCost(usage, service, medium, model, label) {
 			if (
@@ -1435,11 +1446,13 @@ export default {
 			const service_lower = service.toLowerCase();
 
 			if (!model || typeof model !== "string") {
-				throw new Error("Invalid model string (thrown from calculateGPTCost).");
+				console.warn("Invalid model string (thrown from calculateGPTCost).");
+				return 0
 			}
 
 			if (!MODEL_INFO[service_lower][medium][model]) {
-				throw new Error("Non-supported model. (thrown from calculateGPTCost).");
+				console.warn("Non-supported model. (thrown from calculateGPTCost).");
+				return 0
 			}
 
 			console.log(`Calculating the cost of the ${label.toLowerCase()}...`);
@@ -1605,7 +1618,7 @@ export default {
 					}),
 				},
 				children: [
-					...(this.meta_options.includes("Top Callout") && {
+					...(this.meta_options && this.meta_options.includes("Top Callout") ? [{
 						callout: {
 							rich_text: [
 								{
@@ -1640,12 +1653,12 @@ export default {
 							},
 							color: "blue_background",
 						},
-					}),
-					...(this.meta_options.includes("Table of Contents") && {
+					}] : []),
+					...(this.meta_options && this.meta_options.includes("Table of Contents") ? [{
 						table_of_contents: {
 							color: "default",
 						},
-					}),
+					}] : []),
 				],
 			};
 
@@ -1830,7 +1843,7 @@ export default {
 				}
 			}
 
-			if (this.meta_options.includes("Meta")) {
+			if (this.meta_options && this.meta_options.includes("Meta")) {
 			
 				const metaArray = [meta["transcription-cost"], meta["chat-cost"]];
 

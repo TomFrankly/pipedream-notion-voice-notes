@@ -60,9 +60,9 @@ export default {
 		async detectLanguage(llm, service, model, text) {
 			const userPrompt = text;
 			const systemMessage = `Detect the language of the prompt, then return a valid JSON object containing the language name and language code of the text.
-                                    
+										
 			Example: {\"label\": \"English\", \"value\": \"en\"}`;
-
+		
 			try {
 				return await this.chat(
 					llm,
@@ -71,11 +71,15 @@ export default {
 					userPrompt,
 					systemMessage,
 					0,
-					(attempt) =>
-						`Attempt ${attempt}: Detecting transcript language using ChatGPT`,
-					`Language detected successfully.`,
-					(attempt, error) =>
-						`Attempt ${attempt} for language detection failed with error: ${error.message}. Retrying...`
+					(attempt) => {
+						console.log(`Attempt ${attempt}: Detecting transcript language using ChatGPT`);
+					},
+					(result) => {
+						console.log(`Language detected successfully.`);
+					},
+					(attempt, error) => {
+						console.log(`Attempt ${attempt} for language detection failed with error: ${error.message}. Retrying...`);
+					}
 				);
 			} catch (error) {
 				throw new Error(
