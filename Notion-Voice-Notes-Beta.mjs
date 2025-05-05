@@ -1,10 +1,25 @@
+/**
+ * TO DO
+ * 
+ * [ ] - Finish Chat Model Configuration, adding cases for all other services
+ * [ ] - Add informational tutorial property
+ * [ ] - Add Groq to the transcription service options
+ * [ ] - Add Groq to the summarization service options
+ * [ ] - Add support for gpt-4o-transcribe and gpt-4o-mini-transcribe
+ * [ ] - Add any file splitting and conversion optimizations from NVN 3.0
+ * [ ] - Add option to return all details without creating Notion page
+ * [ ] - (Deepgram, OpenAI, Groq?) Add option to include VTT in Notion page (https://platform.openai.com/docs/guides/speech-to-text)
+ * 	
+ */
+
 /* -- Imports -- */
 
 // Transcription and LLM clients
 import { createClient } from "@deepgram/sdk"; // Deepgram SDK
 import { webvtt } from "@deepgram/captions"; // Deepgram WebVTT formatter
 import OpenAI from "openai"; // OpenAI SDK
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk"; // Anthropic SDK
+import Groq from "groq-sdk"; // Groq SDK
 
 // Other clients
 import { Client } from "@notionhq/client"; // Notion SDK
@@ -54,90 +69,237 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "beta-voice-notes",
-	version: "0.0.26",
+	version: "0.0.27",
 	type: "action",
 	props: {
-		notion: {
-			type: "app",
-			app: "notion",
-			description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
-		},
-		openai: {
-			type: "app",
-			app: "openai",
-			description: `**Important:** If you're currently using OpenAI's free trial credit, your API key will be subject to much lower [rate limits](https://platform.openai.com/account/rate-limits), and may not be able to handle longer files (approx. 1 hour+, but the actual limit is hard to determine). If you're looking to work with long files, I recommend [setting up your billing info at OpenAI now](https://platform.openai.com/account/billing/overview).\n\nAdditionally, you'll need to generate a new API key and enter it here once you enter your billing information at OpenAI; once you do that, trial keys stop working.\n\n`,
-		},
 		steps: common.props.steps,
-		summary_options: {
-			type: "string[]",
-			label: "Summary Options",
-			description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
+		transcription_service: {
+			type: "string",
+			label: "Transcription Service",
+			description:
+				"Choose the service to use for transcription. Options include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), and [Groq](https://console.groq.com/docs/speech-to-text). (Deepgram and Groq are in beta and may not work as expected. Groq is currently free to use.)",
 			options: [
-				"Summary",
-				"Main Points",
-				"Action Items",
-				"Follow-up Questions",
-				"Stories",
-				"References",
-				"Arguments",
-				"Related Topics",
-				"Chapters",
+				{
+					label: "OpenAI (Whisper, ChatGPT)",
+					value: "OpenAI",
+				},
+				{
+					label: "Deepgram (Nova)",	
+					value: "Deepgram",
+				},
+				{
+					label: "Google (Gemini)",
+					value: "Google",
+				},
+				{
+					label: "Groq (Whisper)",
+					value: "Groq",
+				},
+				{
+					label: "ElevenLabs (Scribe)",
+					value: "ElevenLabs",
+				}
+				
 			],
-			default: ["Summary", "Main Points", "Action Items", "Follow-up Questions"],
-			optional: false,
 		},
-		meta_options: {
-			type: "string[]",
-			label: "Meta Options",
-			description: `Select the meta sections you'd like to include in your note.\n\nTop Callout will create a callout that includes the date the note was created and a link to the audio file. Table of Contents will create a table of contents block. Meta will create a section at the bottom that includes cost information.`,
+		ai_service: {
+			type: "string",
+			label: "AI Summary Service",
+			description:
+				"Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup. If you only want a transcription, you can select **None (No Summary)**.",
 			options: [
-				"Top Callout",
-				"Table of Contents",
-				"Meta",
+				{
+					label: "OpenAI",
+					value: "OpenAI",
+				},
+				{
+					label: "Anthropic",
+					value: "Anthropic",
+				},
+				{
+					label: "Google (Gemini)",
+					value: "Google",
+				},
+				{
+					label: "Groq",
+					value: "Groq",
+				},
+				{
+					label: "None (No Summary)",
+					value: "None",
+				}
 			],
-			default: [],
-			optional: true,
+		},
+		send_to_notion: {
+			type: "boolean",
+			label: "Send to Notion",
+			description:
+				"Select **True** to automatically send the transcription and summary (if applicable) to Notion. Select **False** if you want this step to simply return the transcription and summary details. You can then use the returned details in another step.",
+			reloadProps: true,
 		},
 		databaseID: common.props.databaseID,
 	},
 	async additionalProps() {
-		let results;
+		const props = {};
 
-		if (this.openai) {
+		if (
+            !this.cloud_service &&
+            !this.transcription_service &&
+            !this.summarization_service
+        ) {
+            return props;
+        }
+
+		// Transcription client props
+        if (this.transcription_service === "OpenAI" || this.ai_service === "OpenAI") {
+            props.openai = {
+                type: "app",
+                app: "openai",
+                description: `Authenticate your OpenAI account.\n\nIf you selected OpenAI for your **Transcription Service**, OpenAI's Whisper service will be used to transcribe your audio file to text. If you selected OpenAI for your **Summarization Service**, ChatGPT will be used to summarize your text transcript.`,
+            };
+        }
+		
+		if (this.transcription_service === "Deepgram") {
+            props.deepgram = {
+                type: "app",
+                app: "deepgram",
+                description: `Authenticate your Deepgram account. This will be used to transcribe your audio file to text.`
+            };
+        }
+
+		if (this.transcription_service === "Groq" || this.ai_service === "Groq") {
+            props.groq = {
+                type: "app",
+                app: "groq",
+                description: `Add your Groq API key. If you selected Groq for your **Transcription Service**, Groq's Whisper service will be used to transcribe your audio file to text. If you selected Groq for your **Summarization Service**, Groq will be used to summarize your text transcript.`	
+			}
+		}
+
+		if (this.transcription_service === "Google" || this.ai_service === "Google") {
+            props.google_gemini = {
+                type: "app",
+                app: "google_gemini",
+                description: `Add your Google Gemini API key. If you selected Google for your **Transcription Service**, Google's Gemini service will be used to transcribe your audio file to text. If you selected Google for your **Summarization Service**, Gemini will be used to summarize your text transcript.`
+			}
+		}
+
+		if (this.transcription_service === "ElevenLabs") {
+            props.elevenlabs = {
+                type: "app",
+                app: "elevenlabs",
+                description: `Authenticate your ElevenLabs account. This will be used to transcribe your audio file to text.`
+			}
+		}
+
+		/* -- Notion configuration -- */
+
+		if (this.send_to_notion) {
+			props.notion = {
+				type: "app",
+				app: "notion",
+				description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
+			}
+		}
+
+		/* -- Summary Configuration -- */
+
+		if (this.ai_service && this.ai_service !== "None (No Summary)") {
+			summary_options = {
+				type: "string[]",
+				label: "Summary Options",
+				description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
+				options: [
+					"Summary",
+					"Main Points",
+					"Action Items",
+					"Follow-up Questions",
+					"Stories",
+					"References",
+					"Arguments",
+					"Related Topics",
+					"Chapters",
+				],
+				default: ["Summary", "Main Points", "Action Items", "Follow-up Questions"],
+				optional: false,
+			},
+			meta_options = {
+				type: "string[]",
+				label: "Meta Options",
+				description: `Select the meta sections you'd like to include in your note.\n\nTop Callout will create a callout that includes the date the note was created and a link to the audio file. Table of Contents will create a table of contents block. Meta will create a section at the bottom that includes cost information.`,
+				options: [
+					"Top Callout",
+					"Table of Contents",
+					"Meta",
+				],
+				default: [],
+				optional: true,
+			}
+		}
+
+		async function getOpenAIModels(api_key, model_type) {
 			try {
-				// Initialize OpenAI
 				const openai = new OpenAI({
-					apiKey: this.openai.$auth.api_key,
+					apiKey: api_key,
 				});
+				
 				const response = await openai.models.list();
+		
+				let results;
 
-				const initialResults = response.data.filter(
-					(model) =>
-						model.id.includes("gpt")
-				).sort((a, b) => a.id.localeCompare(b.id));
+				if (model_type === "chat") {
+					const preferredModels = [
+						"gpt-4.1-nano",
+						"gpt-4.1-mini",
+						"gpt-4.1",
+						"gpt-4o-mini",
+						"gpt-4o",
+					];
 
-				const preferredModels = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
-
-				const preferredItems = []
-				for (const model of preferredModels) {
-					const index = initialResults.findIndex((result) => result.id === model)
-					if (index !== -1) {
-						preferredItems.push(initialResults.splice(index, 1)[0])
-					}
+					results = preferredModels
+						.map(id => response.data.find(model => model.id === id))
+						.filter(Boolean);
 				}
 
-				results = [...preferredItems, ...initialResults];
+				if (model_type === "transcription") {
+					const preferredModels = [
+						"whisper-1",
+						"gpt-4o-transcribe",
+						"gpt-4o-mini-transcribe",
+					];
+
+					results = preferredModels
+						.map(id => response.data.find(model => model.id === id))
+						.filter(Boolean);
+				}
+		
+				return results;
 			} catch (err) {
 				console.error(
 					`Encountered an error with OpenAI: ${err} – Please check that your API key is still valid.`
 				);
+				return [];
 			}
 		}
 
-		if (results === undefined || results.length === 0) {
-			throw new Error(
-				`No available ChatGPT models found. Please check that your OpenAI API key is still valid. If you have recently added billing information to your OpenAI account, you may need to generate a new API key.Keys generated during the trial credit period may not work once billing information is added.`
-			);
+		/*-- Chat Model Configuration --*/
+
+		props.chat_model = {
+			type: "string",
+			label: "Summarization Model",
+			description: `Select the model you would like to use.\n\nDefaults to **gpt-4o-mini**, which is recommended for this workflow.`,
+			default: "gpt-4o-mini",
+			async options() {
+				// Make sure to use the correct API key from the current context
+				const apiKey = this.openai?.$auth?.api_key;
+				if (!apiKey) return [];
+				const models = await getOpenAIModels(apiKey, "chat");
+				return models.map((model) => ({
+					label: model.id,
+					value: model.id,
+				}));
+			},
+			optional: true,
+			reloadProps: true,
 		}
 
 		if (!this.databaseID) return {};
@@ -176,7 +338,7 @@ export default {
 			(k) => properties[k].type === "url"
 		);
 
-		const props = {
+		const moreProps = {
 			noteTitle: {
 				type: "string",
 				label: "Note Title (Required)",
@@ -273,33 +435,21 @@ export default {
 				options: urlProps.map((prop) => ({ label: prop, value: prop })),
 				optional: true,
 			},
-			chat_model: {
-				type: "string",
-				label: "ChatGPT Model",
-				description: `Select the model you would like to use.\n\nDefaults to **gpt-4o-mini**, which is recommended for this workflow.`,
-				default: "gpt-4o-mini",
-				options: results.map((model) => ({
-					label: model.id,
-					value: model.id,
-				})),
-				optional: true,
-				reloadProps: true,
-			},
+			...(this.transcription_service === "OpenAI" && this.openai && {
+				openai_transcription_model: {
+					type: "string",
+					label: "OpenAI Speech-to-Text Model",
+					description: "Select the OpenAI speech-to-text model you would like to use.",
+					default: "whisper-1",
+					options: [
+						"whisper-1",
+						"gpt-4o-transcribe",
+						"gpt-4o-mini-transcribe",
+					],
+				}
+			}),
 			transcript_language: translation.props.transcript_language,
-			transcription_service: {
-				type: "string",
-				label: "Transcription Service",
-				description:
-					"Choose the service to use for transcription. By default, OpenAI's Whisper service is used, which uses your OpenAI API key. If you choose to transcribe with [Deepgram](https://deepgram.com/), you'll need to provide a Deepgram API key in the property that appears after you select Deepgram. \n\n**Note: Deepgram transcription is in beta and may not work as expected.**",
-				options: ["OpenAI", "Deepgram"],
-				default: "OpenAI",
-				reloadProps: true,
-			},
-			...(this.transcription_service === "Deepgram" && {
-				deepgram: {
-					type: "app",
-					app: "deepgram",
-				},
+			...(this.transcription_service === "Deepgram" && this.deepgram && {
 				deepgram_model: {
 					type: "string",
 					label: "Deepgram Model",
@@ -340,15 +490,6 @@ export default {
 					default: ["Punctuate", "Smart Format"],
 				}
 			}),
-			ai_service: {
-				type: "string",
-				label: "AI Service",
-				description:
-					"Choose the service to use for AI. By default, OpenAI's ChatGPT service is used, which uses your OpenAI API key. If you choose to use [Anthropic](https://anthropic.com/), you'll need to provide an Anthropic API key in the property that appears after you select Anthropic.",
-				options: ["OpenAI", "Anthropic"],
-				default: "OpenAI",
-				reloadProps: true,
-			},
 			...(this.ai_service === "Anthropic" && {
 				anthropic: {
 					type: "app",
@@ -408,6 +549,12 @@ export default {
 				disable_moderation_check: openaiOptions.props.disable_moderation_check,
 				fail_on_no_duration: openaiOptions.props.fail_on_no_duration,
 			}),
+		};
+
+		// Add moreProps to props
+		props = {
+			...props,
+			...moreProps,
 		};
 
 		return props;
