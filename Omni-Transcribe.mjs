@@ -2,6 +2,7 @@
  * TO DO
  * 
  * [ ] - Finish Chat Model Configuration, adding cases for all other services
+ * [ ] - Remove cost calculation
  * [ ] - Add informational tutorial property
  * [ ] - Add Groq to the transcription service options
  * [ ] - Add Groq to the summarization service options
@@ -47,6 +48,7 @@ import { join, extname } from "path"; // Path handling
 import { exec, spawn } from "child_process"; // Shell commands
 
 // Project utils
+import transcribe from "./helpers/transcribe.mjs"; // Transcription methods
 import lang from "./helpers/languages.mjs"; // Language codes
 import common from "./helpers/common.mjs"; // Common methods
 import chat from "./helpers/chat.mjs"; // LLM API methods
@@ -65,11 +67,11 @@ const config = {
 };
 
 export default {
-	name: "Beta Voice Notes",
+	name: "Omni Transcriber",
 	description:
-		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
-	key: "beta-voice-notes",
-	version: "0.0.27",
+		"Transcribes audio files using several different services.",
+	key: "omni-transcriber",
+	version: "0.0.1",
 	type: "action",
 	props: {
 		steps: common.props.steps,
@@ -77,7 +79,7 @@ export default {
 			type: "string",
 			label: "Transcription Service",
 			description:
-				"Choose the service to use for transcription. Options include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), and [Groq](https://console.groq.com/docs/speech-to-text). (Deepgram and Groq are in beta and may not work as expected. Groq is currently free to use.)",
+				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini}(https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).`,
 			options: [
 				{
 					label: "OpenAI (Whisper, ChatGPT)",
@@ -99,14 +101,14 @@ export default {
 					label: "ElevenLabs (Scribe)",
 					value: "ElevenLabs",
 				}
-				
 			],
+            reloadProps: true,
 		},
 		ai_service: {
 			type: "string",
 			label: "AI Summary Service",
 			description:
-				"Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup. If you only want a transcription, you can select **None (No Summary)**.",
+				`Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat). If you only want a transcription, you can select **None (No Summary)**.`,
 			options: [
 				{
 					label: "OpenAI",
@@ -129,6 +131,7 @@ export default {
 					value: "None",
 				}
 			],
+            reloadProps: true,
 		},
 		send_to_notion: {
 			type: "boolean",
@@ -139,12 +142,13 @@ export default {
 		},
 	},
 	async additionalProps() {
-		const props = {};
+		let props = {};
 
 		if (
-            !this.cloud_service &&
-            !this.transcription_service &&
-            !this.summarization_service
+            !this.transcription_service ||
+            !this.ai_service ||
+            this.send_to_notion === null ||
+            this.send_to_notion === undefined
         ) {
             return props;
         }
@@ -154,7 +158,8 @@ export default {
             props.openai = {
                 type: "app",
                 app: "openai",
-                description: `Authenticate your OpenAI account.\n\nIf you selected OpenAI for your **Transcription Service**, OpenAI's Whisper service will be used to transcribe your audio file to text. If you selected OpenAI for your **Summarization Service**, ChatGPT will be used to summarize your text transcript.`,
+                description: `Add your [OpenAI API key](https://platform.openai.com/api-keys).\n\nIf you selected OpenAI for your **Transcription Service**, OpenAI's Whisper service will be used to transcribe your audio file to text. If you selected OpenAI for your **Summarization Service**, ChatGPT will be used to summarize your text transcript.`,
+                reloadProps: true,
             };
         }
 		
@@ -162,7 +167,8 @@ export default {
             props.deepgram = {
                 type: "app",
                 app: "deepgram",
-                description: `Authenticate your Deepgram account. This will be used to transcribe your audio file to text.`
+                description: `Add your [Deepgram API key](https://developers.deepgram.com/docs/create-additional-api-keys). This will be used to transcribe your audio file to text.`,
+                reloadProps: true,
             };
         }
 
@@ -170,7 +176,8 @@ export default {
             props.groq = {
                 type: "app",
                 app: "groq",
-                description: `Add your Groq API key. If you selected Groq for your **Transcription Service**, Groq's Whisper service will be used to transcribe your audio file to text. If you selected Groq for your **Summarization Service**, Groq will be used to summarize your text transcript.`	
+                description: `Add your [Groq API key](https://console.groq.com/keys). If you selected Groq for your **Transcription Service**, Groq's Whisper service will be used to transcribe your audio file to text. If you selected Groq for your **Summarization Service**, Groq will be used to summarize your text transcript.`,
+                reloadProps: true,
 			}
 		}
 
@@ -178,7 +185,8 @@ export default {
             props.google_gemini = {
                 type: "app",
                 app: "google_gemini",
-                description: `Add your Google Gemini API key. If you selected Google for your **Transcription Service**, Google's Gemini service will be used to transcribe your audio file to text. If you selected Google for your **Summarization Service**, Gemini will be used to summarize your text transcript.`
+                description: `Add your [Google Gemini API key](https://ai.google.dev/gemini-api/docs/api-key). If you selected Google for your **Transcription Service**, Google's Gemini service will be used to transcribe your audio file to text. If you selected Google for your **Summarization Service**, Gemini will be used to summarize your text transcript.`,
+                reloadProps: true,
 			}
 		}
 
@@ -186,17 +194,18 @@ export default {
             props.elevenlabs = {
                 type: "app",
                 app: "elevenlabs",
-                description: `Authenticate your ElevenLabs account. This will be used to transcribe your audio file to text.`
+                description: `Add your [ElevenLabs API key](https://elevenlabs.io/app/settings/api-keys). This will be used to transcribe your audio file to text.`,
+                reloadProps: true,
 			}
 		}
 
 		/* -- Notion configuration -- */
 
-		if (this.send_to_notion) {
+		if (this.send_to_notion === true) {
 			props.notion = {
 				type: "app",
 				app: "notion",
-				description: `⬆ Don\'t forget to connect your Notion account! Additionally, be sure to give Pipedream access to your Notes database, or to a page that contains it.\n\n## Overview\n\nThis workflow lets you create perfectly-transcribed and summarized notes from voice recordings.\n\nIt also creates useful lists from the transcript, including:\n\n* Main points\n* Action items\n* Follow-up questions\n* Potential rebuttals\n\n**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**\n\n## Compatibility\n\nThis workflow will work with any Notion database.\n\n### Upgrade Your Notion Experience\n\nWhile this workflow will work with any Notion database, it\'s even better with a template.\n\nFor general productivity use, you\'ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. \n\nUltimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.\n\n**Are you a creator?** \n\nMy [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There\'s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.\n\n## Instructions\n\n[Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)\n\n## More Resources\n\n**More automations you may find useful:**\n\n* [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)\n* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)\n\n**All My Notion Automations:**\n\n* [Notion Automations Hub](https://thomasjfrank.com/notion-automations/)\n\n**Want to get notified about updates to this workflow (and about new Notion templates, automations, and tutorials)?**\n\n* [Join my Notion Tips newsletter](https://thomasjfrank.com/fundamentals/#get-the-newsletter)\n\n## Support My Work\n\nThis workflow is **100% free** – and it gets updates and improvements! *When there's an update, you'll see an **update** button in the top-right corner of this step.*\n\nIf you want to support my work, the best way to do so is buying one of my premium Notion Templates:\n\n* [Ultimate Brain](https://thomasjfrank.com/brain/) – the ultimate second-brain template for Notion\n* [Creator\'s Companion](https://thomasjfrank.com/creators-companion/) – my advanced template for serious content creators looking to publish better content more frequently\n\nBeyond that, sharing this automation\'s YouTube tutorial online or with friends is also helpful!`,
+				description: `Authenticate your Notion account.`,
 				reloadProps: true,
 			}
 
@@ -208,7 +217,7 @@ export default {
 		/* -- Summary Configuration -- */
 
 		if (this.ai_service && this.ai_service !== "None (No Summary)") {
-			summary_options = {
+			props.summary_options = {
 				type: "string[]",
 				label: "Summary Options",
 				description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
@@ -226,258 +235,284 @@ export default {
 				default: ["Summary", "Main Points", "Action Items", "Follow-up Questions"],
 				optional: false,
 			},
-			meta_options = {
+			props.meta_options = {
 				type: "string[]",
 				label: "Meta Options",
-				description: `Select the meta sections you'd like to include in your note.\n\nTop Callout will create a callout that includes the date the note was created and a link to the audio file. Table of Contents will create a table of contents block. Meta will create a section at the bottom that includes cost information.`,
+				description: `Select the meta sections you'd like to include in your note.\n\nTop Callout will create a callout that includes the date the note was created and a link to the audio file. Table of Contents will create a table of contents block.`,
 				options: [
 					"Top Callout",
 					"Table of Contents",
-					"Meta",
 				],
 				default: [],
 				optional: true,
 			}
 		}
 
-		async function getOpenAIModels(api_key, model_type) {
-			try {
-				const openai = new OpenAI({
-					apiKey: api_key,
-				});
-				
-				const response = await openai.models.list();
-		
-				let results;
+        /* -- Transcription Model Configuration -- */
 
-				if (model_type === "chat") {
-					const preferredModels = [
-						"gpt-4.1-nano",
-						"gpt-4.1-mini",
-						"gpt-4.1",
-						"gpt-4o-mini",
-						"gpt-4o",
-					];
+        if (this.transcription_service && (
+            this.openai || 
+            this.deepgram || 
+            this.groq || 
+            this.google_gemini || 
+            this.elevenlabs
+        )) {
+            let transcription_model_description;
+            switch (this.transcription_service) {
+                case "OpenAI":
+                    transcription_model_description = "Select the OpenAI speech-to-text model you'd like to use. If you're not sure, **whisper-1** is recommended.";
+                    break;
+                case "Deepgram":
+                    transcription_model_description = "Select the Deepgram model you'd like to use. If you're not sure, **nova-3-general** is recommended.";
+                    break;
+                case "Groq":
+                    transcription_model_description = "Select the Groq speech-to-text model you'd like to use. If you're not sure, **whisper-large-v3-turbo** is recommended.";
+                    break;
+                case "Google":
+                    transcription_model_description = "Select the Google Gemini speech-to-text model you'd like to use. If you're not sure, **gemini-1.5-flash** is recommended.";
+                    break;
+                case "ElevenLabs":
+                    transcription_model_description = "Select the ElevenLabs speech-to-text model you'd like to use. If you're not sure, **nova-2-general** is recommended.";
+                    break;
+                default:
+                    transcription_model_description = "Select the speech-to-text model you'd like to use.";
+                    break;
+            }
 
-					results = preferredModels
-						.map(id => response.data.find(model => model.id === id))
-						.filter(Boolean);
-				}
-
-				if (model_type === "transcription") {
-					const preferredModels = [
-						"whisper-1",
-						"gpt-4o-transcribe",
-						"gpt-4o-mini-transcribe",
-					];
-
-					results = preferredModels
-						.map(id => response.data.find(model => model.id === id))
-						.filter(Boolean);
-				}
-		
-				return results;
-			} catch (err) {
-				console.error(
-					`Encountered an error with OpenAI: ${err} – Please check that your API key is still valid.`
-				);
-				return [];
-			}
-		}
+            props.transcription_model = {
+                type: "string",
+                label: "Speech-to-Text Model",
+                description: `${transcription_model_description}`,
+                async options() {
+                    switch (this.transcription_service) {
+                        case "OpenAI":
+                            return [
+                                "whisper-1",
+                                "gpt-4o-transcribe",
+                                "gpt-4o-mini-transcribe",
+                            ];
+                        case "Deepgram":
+                            return [
+                                "nova-3-general",
+                                "nova-2-general",
+                                "nova-general",
+                            ];
+                        case "Groq":
+                            return [
+                                "whisper-large-v3-turbo",
+                                "distil-whisper-large-v3-en",
+                                "whisper-large-v3"
+                            ];
+                        case "Google":
+                            return [
+                                "gemini-2.0-flash",
+                                "gemini-2.0-flash-lite",
+                                "gemini-1.5-flash",
+                            ];
+                        case "ElevenLabs":
+                            return [
+                                "scribe-v1"
+                            ]
+                        default:
+                            return [];
+                    }
+                }
+            }
+        }
 
 		/*-- Chat Model Configuration --*/
 
-		props.chat_model = {
-			type: "string",
-			label: "Summarization Model",
-			description: `Select the model you would like to use.\n\nDefaults to **gpt-4o-mini**, which is recommended for this workflow.`,
-			default: "gpt-4o-mini",
-			async options() {
-				// Make sure to use the correct API key from the current context
-				const apiKey = this.openai?.$auth?.api_key;
-				if (!apiKey) return [];
-				const models = await getOpenAIModels(apiKey, "chat");
-				return models.map((model) => ({
-					label: model.id,
-					value: model.id,
-				}));
-			},
-			optional: true,
-			reloadProps: true,
-		}
+        if (this.ai_service && (
+            this.openai || 
+            this.anthropic || 
+            this.google_gemini || 
+            this.groq
+        )) {
+            let chat_model_description;
+            switch (this.ai_service) {
+                case "OpenAI":
+                    chat_model_description = "Select the OpenAI chat model you'd like to use. If you're not sure, **gpt-4.1-nano** is recommended.";
+                    break;
+                case "Anthropic":
+                    chat_model_description = "Select the Anthropic chat model you'd like to use. If you're not sure, **claude-3-5-haiku-latest** is recommended.";
+                    break;
+                case "Google":
+                    chat_model_description = "Select the Google Gemini chat model you'd like to use. If you're not sure, **gemini-2.0-flash-lite** is recommended.";
+                    break;
+                case "Groq":
+                    chat_model_description = "Select the Groq chat model you'd like to use. If you're not sure, **llama-3.1-8b-instant** is recommended.";
+                    break;
+                default:
+                    chat_model_description = "Select the chat model you'd like to use.";
+                    break;
+            }
 
-		if (!this.databaseID) return {};
+            props.chat_model = {
+                type: "string",
+                label: "AI Summarization Model",
+                description: `${chat_model_description}`,
+                default: "gpt-4o-mini",
+                async options() {
+                    switch (this.ai_service) {
+                        case "OpenAI":
+                            return [
+                                "gpt-4.1-nano",
+                                "gpt-4.1-mini",
+                                "gpt-4.1",
+                                "gpt-4o-mini",
+                                "gpt-4o",
+                            ];
+                        case "Anthropic":
+                            return [
+                                "claude-3-5-haiku-latest",
+                                "claude-3-5-sonnet-latest",
+                            ];
+                        case "Google":
+                            return [
+                                "gemini-2.0-flash-lite",
+                                "gemini-2.0-flash",
+                                "gemini-1.5-flash",
+                            ];
+                        case "Groq":
+                            return [
+                                "llama-3.1-8b-instant",
+                                "llama-3.3-70b-versatile",
+                            ];
+                            
+                        default:
+                            return [];
+                    }
+                },
+            }
+            
+        }
 
-		const notion = new Client({
-			auth: this.notion.$auth.oauth_access_token,
-		});
+		if (this.databaseID) {
+            const notion = new Client({
+                auth: this.notion.$auth.oauth_access_token,
+            });
+    
+            const database = await notion.databases.retrieve({
+                database_id: this.databaseID,
+            });
+    
+            const properties = database.properties;
+    
+            const notionProps = {
+                noteTitle: {
+                    type: "string",
+                    label: "Note Title (Required)",
+                    description: `Select the title property for your notes. By default, it is called **Name**.`,
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "title")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: false,
+                    reloadProps: true,
+                },
+                ...(this.noteTitle && {
+                    noteTitleValue: {
+                        type: "string",
+                        label: "Note Title Value",
+                        description:
+                            'Choose the value for your note title. Defaults to an AI-generated title based off of the first summarized chunk from your transcription. You can also choose to use the audio file name, or both. If you pick both, the title will be in the format "File Name – AI Title".\n\n**Advanced:** You can also construct a custom title by choosing the *Enter a custom expression* tab and building an expression that evaluates to a string.',
+                        options: [
+                            "AI Generated Title",
+                            "Audio File Name",
+                            'Both ("File Name – AI Title")',
+                        ],
+                        default: "AI Generated Title",
+                        optional: true,
+                    },
+                }),
+                noteDuration: {
+                    type: "string",
+                    label: "Note Duration",
+                    description:
+                        "Select the duration property for your notes. This must be a Number-type property. Duration will be expressed in **seconds**.",
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "number")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: true,
+                },
+                noteTag: {
+                    type: "string",
+                    label: "Note Tag",
+                    description:
+                        'Choose a Select-type property for tagging your note (e.g. tagging it as "AI Transcription").',
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "select")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: true,
+                    reloadProps: true,
+                },
+                noteIcon: {
+                    type: "string",
+                    label: "Note Page Icon",
+                    description:
+                        "Choose an emoji to use as the icon for your note page. Defaults to 🤖. If you don't see the emoji you want in the list, you can also simply type or paste it in the box below.",
+                    options: EMOJI,
+                    optional: true,
+                    default: "🤖",
+                },
+                ...(this.noteTag && {
+                    noteTagValue: {
+                        type: "string",
+                        label: "Note Tag Value",
+                        description: "Choose the value for your note tag.",
+                        options: this.noteTag
+                            ? properties[this.noteTag].select.options.map((option) => ({
+                                    label: option.name,
+                                    value: option.name,
+                              }))
+                            : [],
+                        default: "AI Transcription",
+                        optional: true,
+                    },
+                }),
+                noteDate: {
+                    type: "string",
+                    label: "Note Date",
+                    description:
+                        "Select a date property for your note. This property will be set to the date the audio file was created.",
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "date")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: true,
+                },
+                noteFileName: {
+                    type: "string",
+                    label: "Note File Name",
+                    description:
+                        "Select a text-type property for your note's file name. This property will store the name of the audio file.",
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "rich_text")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: true,
+                },
+                noteFileLink: {
+                    type: "string",
+                    label: "Note File Link",
+                    description:
+                        "Select a URL-type property for your note's file link. This property will store a link to the audio file.",
+                    options: Object.keys(properties)
+                        .filter((k) => properties[k].type === "url")
+                        .map((prop) => ({ label: prop, value: prop })),
+                    optional: true,
+                }
+            }
 
-		const database = await notion.databases.retrieve({
-			database_id: this.databaseID,
-		});
+            // Add notionProps to props
+            props = {
+                ...props,
+                ...notionProps,
+            }
+        }
 
-		const properties = database.properties;
-
-		const titleProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "title"
-		);
-
-		const numberProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "number"
-		);
-
-		const selectProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "select"
-		);
-
-		const dateProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "date"
-		);
-
-		const textProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "rich_text"
-		);
-
-		const urlProps = Object.keys(properties).filter(
-			(k) => properties[k].type === "url"
-		);
+		
 
 		const moreProps = {
-			noteTitle: {
-				type: "string",
-				label: "Note Title (Required)",
-				description: `Select the title property for your notes. By default, it is called **Name**.`,
-				options: titleProps.map((prop) => ({ label: prop, value: prop })),
-				optional: false,
-				reloadProps: true,
-			},
-			...(this.noteTitle && {
-				noteTitleValue: {
-					type: "string",
-					label: "Note Title Value",
-					description:
-						'Choose the value for your note title. Defaults to an AI-generated title based off of the first summarized chunk from your transcription. You can also choose to use the audio file name, or both. If you pick both, the title will be in the format "File Name – AI Title".\n\n**Advanced:** You can also construct a custom title by choosing the *Enter a custom expression* tab and building an expression that evaluates to a string.',
-					options: [
-						"AI Generated Title",
-						"Audio File Name",
-						'Both ("File Name – AI Title")',
-					],
-					default: "AI Generated Title",
-					optional: true,
-				},
-			}),
-			noteDuration: {
-				type: "string",
-				label: "Note Duration",
-				description:
-					"Select the duration property for your notes. This must be a Number-type property. Duration will be expressed in **seconds**.",
-				options: numberProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-			},
-			noteCost: {
-				type: "string",
-				label: "Note Cost",
-				description:
-					"Select the cost property for your notes. This will store the total cost of the run, including both the Whisper (transcription) and ChatGPT (summarization) costs. This must be a Number-type property.",
-				options: numberProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-			},
-			noteTag: {
-				type: "string",
-				label: "Note Tag",
-				description:
-					'Choose a Select-type property for tagging your note (e.g. tagging it as "AI Transcription").',
-				options: selectProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-				reloadProps: true,
-			},
-			noteIcon: {
-				type: "string",
-				label: "Note Page Icon",
-				description:
-					"Choose an emoji to use as the icon for your note page. Defaults to 🤖. If you don't see the emoji you want in the list, you can also simply type or paste it in the box below.",
-				options: EMOJI,
-				optional: true,
-				default: "🤖",
-			},
-			...(this.noteTag && {
-				noteTagValue: {
-					type: "string",
-					label: "Note Tag Value",
-					description: "Choose the value for your note tag.",
-					options: this.noteTag
-						? properties[this.noteTag].select.options.map((option) => ({
-								label: option.name,
-								value: option.name,
-						  }))
-						: [],
-					default: "AI Transcription",
-					optional: true,
-				},
-			}),
-			noteDate: {
-				type: "string",
-				label: "Note Date",
-				description:
-					"Select a date property for your note. This property will be set to the date the audio file was created.",
-				options: dateProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-			},
-			noteFileName: {
-				type: "string",
-				label: "Note File Name",
-				description:
-					"Select a text-type property for your note's file name. This property will store the name of the audio file.",
-				options: textProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-			},
-			noteFileLink: {
-				type: "string",
-				label: "Note File Link",
-				description:
-					"Select a URL-type property for your note's file link. This property will store a link to the audio file.",
-				options: urlProps.map((prop) => ({ label: prop, value: prop })),
-				optional: true,
-			},
-			...(this.transcription_service === "OpenAI" && this.openai && {
-				openai_transcription_model: {
-					type: "string",
-					label: "OpenAI Speech-to-Text Model",
-					description: "Select the OpenAI speech-to-text model you would like to use.",
-					default: "whisper-1",
-					options: [
-						"whisper-1",
-						"gpt-4o-transcribe",
-						"gpt-4o-mini-transcribe",
-					],
-				}
-			}),
 			transcript_language: translation.props.transcript_language,
 			...(this.transcription_service === "Deepgram" && this.deepgram && {
-				deepgram_model: {
-					type: "string",
-					label: "Deepgram Model",
-					description:
-						"Select the model you would like to use. Defaults to **nova-3-general**.",
-					default: "nova-3-general",
-					options: [
-						"nova-3-general",
-						"nova-2-general",
-						"nova-2-medical",
-						"nova-2-finance",
-						"nova-2-meeting",
-						"nova-2-phonecall",
-						"nova-2-voicemail",
-						"nova-2-video",
-						"nova-2-automotive",
-						"nova-general",
-						"whisper-tiny",
-						"whisper-base",
-						"whisper-small",
-						"whisper-medium",
-						"whisper-large",
-					],
-				},
 				deepgram_options: {
 					type: "string[]",
 					label: "Deepgram Options",
@@ -494,31 +529,6 @@ export default {
 					default: ["Punctuate", "Smart Format"],
 				}
 			}),
-			...(this.ai_service === "Anthropic" && {
-				anthropic: {
-					type: "app",
-					app: "anthropic",
-					description:
-						"Note that you MUST have set up a payment method, and your Anthropic account must be at least on the Build Plan in order to use this option. Price calculations will be incorrect when using Anthropic or Deepgram.",
-				},
-			}),
-			...(this.anthropic && {
-				anthropic_model: {
-					type: "string",
-					label: "Anthropic Model",
-					description:
-						"Select the Anthropic model you would like to use. Defaults to **claude-3-5-haiku-20241022**. Only Claude 3/3.5 models are offered.",
-					default: "claude-3-5-haiku-20241022",
-					options: [
-						"claude-3-5-haiku-20241022",
-						"claude-3-5-sonnet-20241022",
-						"claude-3-7-sonnet-20250219",
-						"claude-3-sonnet-20240229",
-						"claude-3-opus-20240229",
-						"claude-3-haiku-20240307"
-					],
-				},
-			}),
 			advanced_options: {
 				type: "boolean",
 				label: "Enable Advanced Options",
@@ -532,12 +542,12 @@ export default {
 					summary_density: {
 						type: "integer",
 						label: "Summary Density (Advanced)",
-						description: `*It is recommended to leave this setting at its default unless you have a good understanding of how LLMs handle tokens.*\n\nSets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis will enable the script to handle longer files, as the script uses concurrent requests, and your LLM will take less time to process a chunk with fewer prompt tokens.\n\nThis does mean your summary and list will be longer, as you'll get them for each chunk. You can somewhat counteract this with the **Summary Verbosity** option.\n\n**Lowering the number here will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 2,750 tokens. The maximum value depends on your chosen model, and the minimum value is 500 tokens.\n\nKeep in mind that setting a very high value will result in a very sparse summary. (E.g. with Claude models, you could set a density as high as 150,000 tokens. But this workflow will output a maxiumum of 5 items per transcript chunk for most lists. That'd be 5 items to summarize *Moby Dick*. I recommend setting a lower density so your transcript is split into smaller chunks, each of which will be summarized.\n\nIf you're using an OpenAI trial account and haven't added your billing info yet, note that you may get rate-limited due to the low requests-per-minute (RPM) rate on trial accounts.`,
+						description: `*It is recommended to leave this setting at its default unless you have a good understanding of how LLMs handle tokens.*\n\nSets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis will enable the script to handle longer files, as the script uses concurrent requests, and your LLM will take less time to process a chunk with fewer prompt tokens.\n\nThis does mean your summary and list will be longer, as you'll get them for each chunk. You can somewhat counteract this with the **Summary Verbosity** option.\n\n**Lowering the number here will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 5,000 tokens. The maximum value depends on your chosen model, and the minimum value is 500 tokens.\n\nKeep in mind that setting a very high value will result in a very sparse summary. (E.g. with Claude models, you could set a density as high as 150,000 tokens. But this workflow will output a maxiumum of 5 items per transcript chunk for most lists. That'd be 5 items to summarize *Moby Dick*. I recommend setting a lower density so your transcript is split into smaller chunks, each of which will be summarized.`,
 						min: 500,
 						max: MODEL_INFO[this.ai_service?.toLowerCase()]?.text[this.model?.toLowerCase()]?.window
 							? MODEL_INFO[this.ai_service?.toLowerCase()]?.text[this.model?.toLowerCase()]?.window * .75
-							: 2750,
-						default: 2750,
+							: 5000,
+						default: 5000,
 						optional: true,
 					},
 				}),
@@ -667,73 +677,16 @@ export default {
 				);
 			}
 		},
-		async chunkFileAndTranscribe({ file }, openai) {
+		async chunkFile({ file }) {
 			const chunkDirName = "chunks-" + this.steps.trigger.context.id;
 			const outputDir = join("/tmp", chunkDirName);
 			config.chunkDir = outputDir;
 			await execAsync(`mkdir -p "${outputDir}"`);
 			await execAsync(`rm -f "${outputDir}/*"`);
 
-			let files
-
-			// Chunk the files
-			try {
-				console.log(`Chunking file: ${file}`);
-				await this.chunkFile({
-					file,
-					outputDir,
-				});
-
-				files = await fs.promises.readdir(outputDir);
-			} catch (error) {
-				await this.cleanTmp();
-
-				console.error(`An error occured while chunking the file: ${error}`);
-				throw new Error(`An error occured while chunking the file: ${error}`);
-			}
-
-			// Transcribe the chunks
-			try {
-				console.log(`Chunks created successfully. Transcribing chunks: ${files}`);
-				return await this.transcribeFiles(
-					{
-						files,
-						outputDir,
-					},
-					openai
-				);
-			} catch (error) {
-				await this.cleanTmp();
-
-				let errorText;
-
-				if (/connection error/i.test(error.message)) {
-					errorText = `PLEASE READ THIS ENTIRE ERROR MESSAGE.
-					
-					An error occured while sending the chunks to OpenAI.
-					
-					If the full error below says "Unidentified connection error", please double-check that you have entered valid billing info in your OpenAI account. Afterward, generate a new API key and enter it in the OpenAI app here in Pipedream. Then, try running the workflow again.
-
-					IF THAT DOES NOT WORK, IT MEANS OPENAI'S SERVERS ARE OVERLOADED RIGHT NOW. "Connection error" means OpenAI's servers simply rejected the request. Please come back and retry the workflow later.
-					
-					If retrying later does not work, please open an issue at this workflow's Github repo: https://github.com/TomFrankly/pipedream-notion-voice-notes/issues`;
-				} else if (/Invalid file format/i.test(error.message)) {
-					errorText = `An error occured while sending the chunks to OpenAI.
-
-					Note: OpenAI officially supports .m4a files, but some apps create .m4a files that OpenAI can't read. If you're using an .m4a file, try converting it to .mp3 and running the workflow again.`;
-				} else {
-					errorText = `An error occured while sending the chunks to OpenAI.`;
-				}
-
-				throw new Error(
-					`${errorText}
-					
-					Full error from OpenAI: ${error.message}`
-				);
-			}
-		},
-		async chunkFile({ file, outputDir }) {
-			const ffmpegPath = ffmpegInstaller.path;
+            console.log(`Chunking file: ${file}`);
+            
+            const ffmpegPath = ffmpegInstaller.path;
 			const ext = extname(file);
 
 			const fileSizeInMB = fs.statSync(file).size / (1024 * 1024);
@@ -747,7 +700,11 @@ export default {
 			if (numberOfChunks === 1) {
 				await execAsync(`cp "${file}" "${outputDir}/chunk-000${ext}"`);
 				console.log(`Created 1 chunk: ${outputDir}/chunk-000${ext}`);
-				return;
+                const files = await fs.promises.readdir(outputDir);
+				return {
+                    files: files,
+                    outputDir: outputDir,
+                }
 			}
 
 			// Get duration using spawn instead of exec
@@ -843,6 +800,11 @@ export default {
 					file.includes("chunk-")
 				).length;
 				console.log(`Created ${chunkCount} chunks.`);
+
+                return {
+                    files: chunkFiles,
+                    outputDir: outputDir,
+                }
 			} catch (error) {
 				console.error(
 					`An error occurred while splitting the file into chunks: ${error}`
@@ -850,118 +812,41 @@ export default {
 				throw error;
 			}
 		},
-		transcribeFiles({ files, outputDir }, openai) {
+		transcribeFiles({ files, outputDir }) {
 			const limiter = new Bottleneck({
 				maxConcurrent: 30,
 				minTime: 1000 / 30,
 			});
 
+            let apiKey;
+
+            if (this.transcription_service === "OpenAI") {
+                apiKey = this.openai.$auth.api_key;
+            } else if (this.transcription_service === "Deepgram") {
+                apiKey = this.deepgram.$auth.api_key;
+            } else if (this.transcription_service === "Groq") {
+                apiKey = this.groqcloud.$auth.api_key;
+            } else if (this.transcription_service === "ElevenLabs") {
+                apiKey = this.elevenlabs.$auth.api_key;
+            } else if (this.transcription_service === "Google") {
+                apiKey = this.google_gemini.$auth.api_key;
+            }
+
 			return Promise.all(
 				files.map((file) => {
 					return limiter.schedule(() =>
-						this.transcribe(
-							{
-								file,
-								outputDir,
-							},
-							openai
-						)
+						this.transcribe({
+							file,
+							outputDir,
+							service: this.transcription_service,
+							model: this.transcription_model,
+							apiKey: apiKey
+						})
 					);
 				})
 			);
 		},
-		transcribe({ file, outputDir }, openai) {
-			return retry(
-				async (bail, attempt) => {
-					const readStream = fs.createReadStream(join(outputDir, file));
-					console.log(`Transcribing file: ${file}`);
-
-					try {
-						const response = await openai.audio.transcriptions
-							.create(
-								{
-									model: "whisper-1",
-									...(config.transcriptLanguage &&
-										config.transcriptLanguage !== "" && {
-											language: config.transcriptLanguage,
-										}),
-									file: readStream,
-									prompt:
-										this.whisper_prompt && this.whisper_prompt !== ""
-											? this.whisper_prompt
-											: `Hello, welcome to my lecture.`,
-								},
-								{
-									maxRetries: 5,
-								}
-							)
-							.withResponse();
-
-						const limits = {
-							requestRate: response.response.headers.get("x-ratelimit-limit-requests"),
-							tokenRate: response.response.headers.get("x-ratelimit-limit-tokens"),
-							remainingRequests: response.response.headers.get(
-								"x-ratelimit-remaining-requests"
-							),
-							remainingTokens: response.response.headers.get(
-								"x-ratelimit-remaining-tokens"
-							),
-							rateResetTimeRemaining: response.response.headers.get(
-								"x-ratelimit-reset-requests"
-							),
-							tokenRestTimeRemaining: response.response.headers.get(
-								"x-ratelimit-reset-tokens"
-							),
-						};
-						console.log(
-							`Received response from OpenAI Whisper endpoint for ${file}. Your API key's current Audio endpoing limits (learn more at https://platform.openai.com/docs/guides/rate-limits/overview):`
-						);
-						console.table(limits);
-
-						if (limits.remainingRequests <= 1) {
-							console.log(
-								"WARNING: Only 1 request remaining in the current time period. Rate-limiting may occur after the next request. If so, this script will attempt to retry with exponential backoff, but the workflow run may hit your Timeout Settings (https://pipedream.com/docs/workflows/settings/#execution-timeout-limit) before completing. If you have not upgraded your OpenAI account to a paid account by adding your billing information (and generated a new API key afterwards, replacing your trial key here in Pipedream with that new one), your trial API key is subject to low rate limits. Learn more here: https://platform.openai.com/docs/guides/rate-limits/overview"
-							);
-						}
-
-						return response;
-					} catch (error) {
-						if (error instanceof OpenAI.APIError) {
-							console.log(`Encountered error from OpenAI: ${error.message}`);
-							console.log(`Status code: ${error.status}`);
-							console.log(`Error name: ${error.name}`);
-							console.log(`Error headers: ${JSON.stringify(error.headers)}`);
-						} else {
-							console.log(
-								`Encountered generic error, not described by OpenAI SDK error handler: ${error}`
-							);
-						}
-
-						if (
-							error.message.toLowerCase().includes("econnreset") ||
-							error.message.toLowerCase().includes("connection error") ||
-							(error.status && error.status >= 500)
-						) {
-							console.log(`Encountered a recoverable error. Retrying...`);
-							throw error;
-						} else {
-							console.log(
-								`Encountered an error that won't be helped by retrying. Bailing...`
-							);
-							bail(error);
-						}
-					} finally {
-						readStream.destroy();
-					}
-				},
-				{
-					retries: 3,
-					onRetry: (err) => {
-						console.log(`Retrying transcription for ${file} due to error: ${err}`);
-					},
-				}
-			);
-		},
+        ...transcribe.methods,
 		async transcribeDeepgram(file) {
 			console.log(`Deepgram formatting options: ${this.deepgram_options.join(", ")}`)
 
@@ -971,7 +856,7 @@ export default {
 				const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
 					fs.createReadStream(file),
 					{
-						model: this.deepgram_model ?? "nova-2-general",
+						model: this.transcription_model ?? "nova-3-general",
 						smart_format: this.deepgram_options.includes('Smart Format') ? true : false,
 						punctuate: this.deepgram_options.includes('Punctuate') ? true : false,
 						detect_language: true,
@@ -1313,7 +1198,7 @@ export default {
 						return this.chat(
 							llm,
 							this.ai_service,
-							this.ai_service === "OpenAI" ? this.chat_model : this.anthropic_model,
+							this.chat_model,
 							userPrompt,
 							systemMessage,
 							this.temperature,
@@ -1734,11 +1619,6 @@ export default {
 					...(this.noteDuration && {
 						[this.noteDuration]: {
 							number: duration,
-						},
-					}),
-					...(this.noteCost && {
-						[this.noteCost]: {
-							number: totalCost,
 						},
 					}),
 					...(this.noteDate && {
@@ -2295,16 +2175,13 @@ export default {
 		console.log("Checking if the user set languages...");
 		this.setLanguages();
 
-		console.log("Setting the transcription service...");
-		config.transcription_service = this.transcription_service ?? "OpenAI";
-
 		const logSettings = {
-			"AI Service": this.ai_service,
-			"Chat Model":
-				this.ai_service === "Anthropic" ? this.anthropic_model : this.chat_model,
-			"Transcription Service": config.transcription_service,
+			"Transcription Service": this.transcription_service,
+            "AI Service": this.ai_service,
+			"Transcription Model": this.transcription_model,
+			"Chat Model": this.chat_model,
 			"Summary Options": this.summary_options,
-			"Summary Density": this.summary_density ?? "2750 (default)",
+			"Summary Density": this.summary_density ?? "5000 (default)",
 			Verbosity: this.verbosity ?? "Medium (default)",
 			"Temperature:": this.temperature ?? "0.2 (default)",
 			"Audio File Chunk Size": this.chunk_size ?? "24 (default)",
@@ -2313,7 +2190,6 @@ export default {
 			"Note Tag Property": this.noteTag,
 			"Note Tag Value": this.noteTagValue,
 			"Note Duration Property": this.noteDuration,
-			"Note Cost Property": this.noteCost,
 			"Transcript Language": this.transcript_language ?? "No language set.",
 			"Summary Language": this.summary_language ?? "No language set.",
 			"Fail on no Duration": this.fail_on_no_duration ?? "Disabled (default)",
@@ -2439,11 +2315,21 @@ export default {
 
 		/* -- Transcription Stage -- */
 
-		const openai = new OpenAI({
-			apiKey: this.openai.$auth.api_key,
-		});
+        // Chunk the file
+        const chunkFiles = await this.chunkFile({ file: fileInfo.path });
 
-		if (config.transcription_service === "OpenAI") {
+        console.log(`Chunks created successfully. Transcribing chunks: ${chunkFiles.files}`);
+
+        // Transcribe the chunk(s)
+        const transcriptionDetails = await this.transcribeFiles({
+            files: chunkFiles.files,
+            outputDir: chunkFiles.outputDir,
+        })
+
+        // TESTING: Return the transcription details
+        return transcriptionDetails;
+
+		if (this.transcription_service === "OpenAI") {
 			console.log(`Using OpenAI's Whisper service for transcription.`);
 			fileInfo.whisper = await this.chunkFileAndTranscribe(
 				{ file: fileInfo.path },
@@ -2452,7 +2338,7 @@ export default {
 
 			console.log("Whisper chunks array:");
 			console.dir(fileInfo.whisper, { depth: null });
-		} else if (config.transcription_service === "Deepgram") {
+		} else if (this.transcription_service === "Deepgram") {
 			console.log(`Using Deepgram for transcription.`);
 			fileInfo.deepgram = await this.transcribeDeepgram(fileInfo.path);
 			console.log("Deepgram transcript:");
@@ -2478,7 +2364,7 @@ export default {
 
 		/* -- Transcript Cleanup Stage -- */
 
-		console.log(`Using the ${this.ai_service === "Anthropic" ? this.anthropic_model : this.chat_model} model.`);
+		console.log(`Using the ${this.chat_model} model.`);
 
 		const maxTokens = this.summary_density
 			? this.summary_density
@@ -2494,9 +2380,9 @@ export default {
 
 		// Set the full transcript based on which transcription service was used
 		fileInfo.full_transcript =
-			config.transcription_service === "OpenAI"
+			this.transcription_service === "OpenAI"
 				? await this.combineWhisperChunks(fileInfo.whisper)
-				: config.transcription_service === "Deepgram"
+				: this.transcription_service === "Deepgram"
 				? fileInfo.deepgram.raw_transcript
 				: "No transcript available.";
 
@@ -2608,7 +2494,7 @@ export default {
 			fileInfo.duration,
 			this.transcription_service,
 			"audio",
-			this.transcription_service === "Deepgram" ? this.deepgram_model : "whisper"
+			this.transcription_service === this.transcription_model
 		);
 
 		const summaryUsage = {
@@ -2656,7 +2542,7 @@ export default {
 			const detectedLanguage = await this.detectLanguage(
 				llm,
 				this.ai_service,
-				this.ai_service === "Anthropic" ? this.anthropic_model : this.chat_model,
+				this.chat_model,
 				fileInfo.paragraphs.transcript[0]
 			);
 
@@ -2697,7 +2583,7 @@ export default {
 				const translatedTranscript = await this.translateParagraphs(
 					llm,
 					this.ai_service,
-					this.ai_service === "Anthropic" ? this.anthropic_model : this.chat_model,
+					this.chat_model,
 					fileInfo.paragraphs.transcript,
 					fileInfo.language.summary,
 					this.temperature

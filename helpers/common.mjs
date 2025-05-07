@@ -37,23 +37,15 @@ export default {
 							],
 						});
 
-						let allTasksDbs = response.results.filter((db) =>
-							db.title?.[0]?.plain_text.includes("All Notes")
+						let notesDbs = response.results.filter((db) =>
+							/notes/i.test(db.title?.[0]?.plain_text)
 						);
-						let nonTaskDbs = response.results.filter(
-							(db) => !db.title?.[0]?.plain_text.includes("All Notes")
+						let nonNotesDbs = response.results.filter(
+							(db) => !/notes/i.test(db.title?.[0]?.plain_text)
 						);
-						let sortedDbs = [...allTasksDbs, ...nonTaskDbs];
-						const UTregex = /All Notes/;
-						const UTLabel = " – (used for Ultimate Notes)";
-						const UBregex = /All Notes \[\w*\]/;
-						const UBLabel = " – (used for Ultimate Brain)";
+						let sortedDbs = [...notesDbs, ...nonNotesDbs];
 						const options = sortedDbs.map((db) => ({
-							label: UBregex.test(db.title?.[0]?.plain_text)
-								? db.title?.[0]?.plain_text + UBLabel
-								: UTregex.test(db.title?.[0]?.plain_text)
-								? db.title?.[0]?.plain_text + UTLabel
-								: db.title?.[0]?.plain_text,
+							label: db.title?.[0]?.plain_text,
 							value: db.id,
 						}));
 
