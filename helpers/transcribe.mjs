@@ -11,40 +11,107 @@ import {
 import fs from "fs";
 import { join } from "path";
 import retry from "async-retry";
+import Bottleneck from "bottleneck";
 
 export default {
     methods: {
-        async transcribe({ file, outputDir, service, model, apiKey }) {
+        async transcribeFiles({ files, outputDir }) {
+			let maxConcurrent;
+            let apiKey;
+
+            if (this.transcription_service === "openai") {
+                maxConcurrent = 50;
+                apiKey = this.openai.$auth.api_key;
+            } else if (this.transcription_service === "deepgram") {
+                maxConcurrent = 50;
+                apiKey = this.deepgram.$auth.api_key;
+            } else if (this.transcription_service === "groqcloud") {
+                maxConcurrent = 20;
+                apiKey = this.groqcloud.$auth.api_key;
+            } else if (this.transcription_service === "elevenlabs") {
+                maxConcurrent = 10;
+                apiKey = this.elevenlabs.$auth.api_key;
+            } else if (this.transcription_service === "google_gemini") {
+                maxConcurrent = 15;
+                apiKey = this.google_gemini.$auth.api_key;
+            }
+
+            console.log(`Limiting transcription to ${maxConcurrent} concurrent requests.`);
+            console.log("Selected transcription service:", this.transcription_service);
+
+            const limiter = new Bottleneck({
+				maxConcurrent: maxConcurrent,
+				minTime: 1000 / maxConcurrent,
+			});
+
+            const readStreams = new Set();
+
+			return Promise.all(
+				files.map((file) => {
+					return limiter.schedule(async () => {
+                        const readStream = fs.createReadStream(join(outputDir, file));
+                        readStreams.add(readStream);
+                        
+                        try {
+                            const result = await this.transcribe({
+                                file,
+                                outputDir,
+                                service: this.transcription_service,
+                                model: this.transcription_model,
+                                apiKey: apiKey,
+                                readStream
+                            });
+                            return result;
+                        } finally {
+                            readStream.destroy();
+                            readStreams.delete(readStream);
+                        }
+                    });
+				})
+			).finally(() => {
+                // Clean up any remaining streams
+                for (const stream of readStreams) {
+                    stream.destroy();
+                }
+                readStreams.clear();
+            });
+		},
+        async transcribe({ file, outputDir, service, model, apiKey, readStream }) {
             return retry(
                 async (bail, attempt) => {
-                    console.log(`Attempt ${attempt}: Transcribing file ${file} with ${service}`);
+                    console.log(`Attempt ${attempt}: Transcribing file ${file} with service ${service} and model ${model}.`);
                     
                     try {
                         let result;
                         switch (service.toLowerCase()) {
                             case "openai":
-                                result = await this.transcribeOpenAI({ file, outputDir, model, apiKey });
+                                console.log("Routing to OpenAI transcription");
+                                result = await this.transcribeOpenAI({ model, apiKey, readStream });
                                 break;
-                            case "groq":
-                                result = await this.transcribeGroq({ file, outputDir, model, apiKey });
+                            case "groqcloud":
+                                console.log("Routing to Groq transcription");
+                            result = await this.transcribeGroq({ model, apiKey, readStream });
                                 break;
                             case "deepgram":
-                                result = await this.transcribeDeepgram({ file, outputDir, model, apiKey });
+                                console.log("Routing to Deepgram transcription");
+                                result = await this.transcribeDeepgram({ model, apiKey, readStream });
                                 break;
                             case "elevenlabs":
-                                result = await this.transcribeElevenLabs({ file, outputDir, model, apiKey });
+                                console.log("Routing to ElevenLabs transcription");
+                                result = await this.transcribeElevenLabs({ model, apiKey, readStream });
                                 break;
-                            case "google":
-                                result = await this.transcribeGoogle({ file, outputDir, model, apiKey });
+                            case "google_gemini":
+                                console.log("Routing to Google Gemini transcription");
+                                result = await this.transcribeGoogle({ file, outputDir, model, apiKey, readStream });
                                 break;
                             default:
                                 throw new Error(`Unsupported transcription service: ${service}`);
                         }
 
-                        console.log(`Successfully transcribed file ${file} with ${service}`);
+                        console.log(`Successfully transcribed file ${file} with service ${service} and model ${model}.`);
                         return result;
                     } catch (error) {
-                        console.error(`Error transcribing file ${file} with ${service}:`, error);
+                        console.error(`Error transcribing file ${file} with service ${service} and model ${model}:`, error);
 
                         // Check if error is recoverable
                         if (
@@ -63,33 +130,67 @@ export default {
                 {
                     retries: 3,
                     onRetry: (error, attempt) => {
-                        console.log(`Retrying transcription for ${file} due to error: ${error.message}`);
-                    },
+                        console.log(`Retry attempt ${attempt} for file ${file} due to: ${error.message}`);
+                    }
                 }
             );
         },
 
-        async transcribeOpenAI({ file, outputDir, model = "whisper-1", apiKey }) {
+        async transcribeOpenAI({ model = "whisper-1", apiKey, readStream }) {
             const openai = new OpenAI({ apiKey });
-            const readStream = fs.createReadStream(join(outputDir, file));
             
             try {
-                const response = await openai.audio.transcriptions.create({
+                // Determine if we're using a GPT-4o model
+                const isGPT4oModel = model.toLowerCase().includes('gpt-4o');
+                
+                // Set up base request parameters
+                const requestParams = {
                     file: readStream,
                     model,
-                    response_format: "verbose_json",
-                    timestamp_granularities: ["segment"]
-                });
-
-                return {
-                    text: response.text,
-                    timestamps: response.segments,
-                    metadata: {
-                        language: response.language,
-                        duration: response.duration,
-                        model
-                    }
+                    response_format: isGPT4oModel ? "json" : "verbose_json",
                 };
+
+                // Add temperature if provided (convert from 0-20 scale to 0-1 scale)
+                if (this.whisper_temperature !== undefined) {
+                    requestParams.temperature = this.whisper_temperature / 10;
+                }
+
+                // Add prompt if provided
+                if (this.whisper_prompt) {
+                    requestParams.prompt = this.whisper_prompt;
+                    console.log(`Using custom prompt: ${this.whisper_prompt}`);
+                }
+
+                // Add timestamp granularities only for non-GPT-4o models
+                if (!isGPT4oModel) {
+                    requestParams.timestamp_granularities = ["segment"];
+                }
+
+                const response = await openai.audio.transcriptions.create(requestParams);
+
+                // Handle different response formats
+                if (isGPT4oModel) {
+                    return {
+                        text: response.text,
+                        metadata: {
+                            language: response.language,
+                            duration: response.duration,
+                            model,
+                            logprobs: response.logprobs
+                        }
+                    };
+                } else {
+                    return {
+                        text: response.text,
+                        timestamps: response.segments,
+                        vtt: this.generateVTT(response.segments),
+                        metadata: {
+                            language: response.language,
+                            duration: response.duration,
+                            model
+                        }
+                    };
+                }
             } catch (error) {
                 let errorText;
 
@@ -118,26 +219,38 @@ export default {
                     
                     Full error from OpenAI: ${error.message}`
                 );
-            } finally {
-                readStream.destroy();
             }
         },
 
-        async transcribeGroq({ file, outputDir, model = "whisper-large-v3-turbo", apiKey }) {
+        async transcribeGroq({ model = "distil-whisper-large-v3-en", apiKey, readStream }) {
             const groq = new Groq({ apiKey });
-            const readStream = fs.createReadStream(join(outputDir, file));
             
             try {
-                const response = await groq.audio.transcriptions.create({
+                // Set the request parameters
+                const requestParams = {
                     file: readStream,
                     model,
                     response_format: "verbose_json",
-                    timestamp_granularities: ["word", "segment"]
-                });
+                    timestamp_granularities: ["segment"]
+                };
+
+                // Add the whisper prompt if provided
+                if (this.whisper_prompt) {
+                    requestParams.prompt = this.whisper_prompt;
+                    console.log(`Using custom prompt: ${this.whisper_prompt}`);
+                }
+
+                // Add temperature if provided (convert from 0-20 scale to 0-1 scale)
+                if (this.whisper_temperature !== undefined) {
+                    requestParams.temperature = this.whisper_temperature / 10;
+                }
+                
+                const response = await groq.audio.transcriptions.create(requestParams);
 
                 return {
                     text: response.text,
                     timestamps: response.segments,
+                    vtt: this.generateVTT(response.segments),
                     metadata: {
                         language: response.language,
                         duration: response.duration,
@@ -146,70 +259,101 @@ export default {
                 };
             } catch (error) {
                 throw new Error(`Groq transcription error: ${error.message}`);
-            } finally {
-                readStream.destroy();
             }
         },
 
-        async transcribeDeepgram({ file, outputDir, model = "nova-3-general", apiKey }) {
+        async transcribeDeepgram({ model = "nova-3", apiKey, readStream }) {
             const deepgram = createClient(apiKey);
-            const readStream = fs.createReadStream(join(outputDir, file));
             
             try {
+                console.log("Starting Deepgram transcription request...");
                 const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
                     readStream,
                     {
-                        model,
-                        smart_format: true,
-                        punctuate: true,
+                        model: model,
                         detect_language: true,
                         diarize: true,
-                        numerals: false,
-                        filler_words: true,
+                        numerals: true,
                         measurements: true,
-                        profanity_filter: true,
-                        dictation: true
+                        punctuate: true,
+                        dictation: true,
+                        summarize: "v2",
+                        utterances: true
                     }
                 );
 
                 if (error) {
+                    console.error("Deepgram error response:", error);
                     throw new Error(`Deepgram error: ${error.message}`);
                 }
 
-                const vttOutput = webvtt(result);
-                const speakers = new Set();
-                
-                if (result.results.channels[0].alternatives[0].words) {
-                    for (const word of result.results.channels[0].alternatives[0].words) {
-                        if (word.speaker) {
-                            speakers.add(word.speaker);
-                        }
-                    }
-                }
+                // Debug logging for response structure
+                console.log("Deepgram response structure:", {
+                    hasResult: !!result,
+                    resultKeys: result ? Object.keys(result) : null,
+                    hasResults: result?.results ? true : false,
+                    resultsKeys: result?.results ? Object.keys(result.results) : null,
+                    hasChannels: result?.results?.channels ? true : false,
+                    channelCount: result?.results?.channels?.length,
+                    hasAlternatives: result?.results?.channels?.[0]?.alternatives ? true : false,
+                    alternativeCount: result?.results?.channels?.[0]?.alternatives?.length,
+                    transcriptPreview: result?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.substring(0, 100) + "...",
+                    confidence: result?.results?.channels?.[0]?.alternatives?.[0]?.confidence,
+                    hasParagraphs: !!result?.results?.channels?.[0]?.alternatives?.[0]?.paragraphs,
+                    detectedLanguage: result?.results?.channels?.[0]?.detected_language,
+                    metadataKeys: result?.metadata ? Object.keys(result.metadata) : null
+                });
 
-                return {
+                // Log the actual response object structure
+                console.log("Raw Deepgram response:", JSON.stringify(result, null, 2).substring(0, 500) + "...");
+
+                const vttOutput = webvtt(result);
+
+                // Log the VTT output structure
+                console.log("VTT output structure:", {
+                    hasVtt: !!vttOutput,
+                    vttLength: vttOutput?.length,
+                    vttPreview: vttOutput?.substring(0, 100) + "..."
+                });
+
+                // Create the return object
+                const returnObject = {
                     text: result.results.channels[0].alternatives[0].transcript,
                     confidence: result.results.channels[0].alternatives[0].confidence,
                     paragraphs: result.results.channels[0].alternatives[0].paragraphs?.transcript,
                     language: result.results.channels[0].detected_language,
-                    language_confidence: result.results.channels[0].language_confidence,
+                    utterances: result.results.utterances,
                     vtt: vttOutput,
-                    speakers: speakers.size,
                     metadata: {
                         ...result.metadata,
                         model
                     }
                 };
+
+                // Log the return object structure
+                console.log("Return object structure:", {
+                    keys: Object.keys(returnObject),
+                    textLength: returnObject.text?.length,
+                    hasConfidence: !!returnObject.confidence,
+                    hasParagraphs: !!returnObject.paragraphs,
+                    hasLanguage: !!returnObject.language,
+                    hasVtt: !!returnObject.vtt,
+                    metadataKeys: Object.keys(returnObject.metadata)
+                });
+
+                return returnObject;
             } catch (error) {
+                console.error("Deepgram transcription error details:", {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack?.split('\n').slice(0, 3).join('\n')
+                });
                 throw new Error(`Deepgram transcription error: ${error.message}`);
-            } finally {
-                readStream.destroy();
             }
         },
 
-        async transcribeElevenLabs({ file, outputDir, model = "scribe_v1", apiKey }) {
+        async transcribeElevenLabs({ model = "scribe_v1", apiKey, readStream }) {
             const client = new ElevenLabsClient({ apiKey });
-            const readStream = fs.createReadStream(join(outputDir, file));
             
             try {
                 const response = await client.speechToText.convert({
@@ -217,7 +361,12 @@ export default {
                     file: readStream,
                     diarize: true,
                     timestamps_granularity: "word",
-                    tag_audio_events: true
+                    tag_audio_events: true,
+                    additional_formats: [
+                        {
+                            format: "srt"
+                        }
+                    ]
                 });
 
                 return {
@@ -225,6 +374,7 @@ export default {
                     timestamps: response.timestamps,
                     speakers: response.speakers,
                     audio_events: response.audio_events,
+                    additional_formats: response.additional_formats,
                     metadata: {
                         language: response.language,
                         duration: response.duration,
@@ -233,26 +383,32 @@ export default {
                 };
             } catch (error) {
                 throw new Error(`ElevenLabs transcription error: ${error.message}`);
-            } finally {
-                readStream.destroy();
             }
         },
 
-        async transcribeGoogle({ file, outputDir, model = "gemini-2.0-flash", apiKey }) {
+        async transcribeGoogle({ file, outputDir, model = "gemini-2.0-flash", apiKey, readStream }) {
             const ai = new GoogleGenAI({ apiKey });
-            const readStream = fs.createReadStream(join(outputDir, file));
+            const filePath = join(outputDir, file);
             
             try {
                 const myfile = await ai.files.upload({
-                    file: readStream,
+                    file: filePath,
                     config: { mimeType: "audio/mp3" }
                 });
 
+                // Add prompt if provided
+                let prompt;
+                if (this.whisper_prompt) {
+                    prompt = this.whisper_prompt;
+                } else {
+                    prompt = "Transcribe this audio file completely and accurately. Remove filler words like 'um' and 'like'. Remove stammering. Convert numbers to numerals. Convert measurements to numerals with units. Do not add any additional text or commentary.";
+                }
+                
                 const response = await ai.models.generateContent({
                     model,
                     contents: createUserContent([
                         createPartFromUri(myfile.uri, myfile.mimeType),
-                        "Transcribe this audio file with timestamps and speaker diarization"
+                        prompt
                     ])
                 });
 
@@ -265,9 +421,41 @@ export default {
                 };
             } catch (error) {
                 throw new Error(`Google Gemini transcription error: ${error.message}`);
-            } finally {
-                readStream.destroy();
             }
+        },
+
+        generateVTT(timestamps) {
+            if (!timestamps || !Array.isArray(timestamps)) {
+                return '';
+            }
+
+            let vtt = '';
+
+            // Convert each timestamp segment to VTT format
+            timestamps.forEach((segment, index) => {
+                // Format timestamps to VTT format (HH:MM:SS.mmm)
+                const startTime = this.formatTimestamp(segment.start);
+                const endTime = this.formatTimestamp(segment.end);
+                
+                // Add cue number and timestamps
+                vtt += `${index + 1}\n`;
+                vtt += `${startTime} --> ${endTime}\n`;
+                
+                // Add text content
+                vtt += `${segment.text.trim()}\n\n`;
+            });
+
+            return vtt;
+        },
+
+        formatTimestamp(seconds) {
+            const date = new Date(seconds * 1000);
+            const hours = date.getUTCHours().toString().padStart(2, '0');
+            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+            const secs = date.getUTCSeconds().toString().padStart(2, '0');
+            const ms = date.getUTCMilliseconds().toString().padStart(3, '0');
+            
+            return `${hours}:${minutes}:${secs}.${ms}`;
         }
     }
 }

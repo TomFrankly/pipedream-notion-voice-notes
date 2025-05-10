@@ -71,7 +71,7 @@ export default {
 	description:
 		"Transcribes audio files, summarizes the transcript, and sends both transcript and summary to Notion.",
 	key: "alpha-voice-notes",
-	version: "0.0.12",
+	version: "0.0.16",
 	type: "action",
 	props: {
 		steps: common.props.steps,
@@ -79,8 +79,20 @@ export default {
 			type: "string",
 			label: "Transcription Service",
 			description:
-				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini}(https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).`,
+				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini}(https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).\n\n**Recommendations:** If you're on Pipedream's free tier plan, you're limited to 3 total connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for summarization.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for summarization, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **ElevenLabs** is a good option for transcription.\n\n - **Deepgram** is extremely fast (on par or faster than Groq), but often fails to add punctuation.\n\n- **OpenAI** is the least recommended option. Its summarization models are good, but its transcription models are slow and often reject requests.`,
 			options: [
+                {
+					label: "Groq (Whisper)",
+					value: "Groq",
+				},
+                {
+					label: "Google (Gemini)",
+					value: "Google",
+				},
+                {
+					label: "ElevenLabs (Scribe)",
+					value: "ElevenLabs",
+				},
 				{
 					label: "OpenAI (Whisper, ChatGPT)",
 					value: "OpenAI",
@@ -89,18 +101,6 @@ export default {
 					label: "Deepgram (Nova)",	
 					value: "Deepgram",
 				},
-				{
-					label: "Google (Gemini)",
-					value: "Google",
-				},
-				{
-					label: "Groq (Whisper)",
-					value: "Groq",
-				},
-				{
-					label: "ElevenLabs (Scribe)",
-					value: "ElevenLabs",
-				}
 			],
             reloadProps: true,
 		},
@@ -108,7 +108,7 @@ export default {
 			type: "string",
 			label: "AI Summary Service",
 			description:
-				`Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat). If you only want a transcription, you can select **None (No Summary)**.`,
+				`Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat).\n\nYou can also select **None** – this will disable the summary step. *Note: If you select **None**, your only page title option will be the audio file name. Alternatively, you can select a service here if you want to generate a title, then uncheck all other summary options in the Summary Options property.*\n\n**Recommendations:** If you're on Pipedream's free tier plan, you're limited to 3 total connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for transcription.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for transcription, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **OpenAI** is a good option for summarization, but its transcription models are slow and often reject requests.\n\n - **Anthropic** is a good option for summarization, but it does not offer transcription.`,
 			options: [
 				{
 					label: "OpenAI",
@@ -133,27 +133,22 @@ export default {
 			],
             reloadProps: true,
 		},
-		send_to_notion: {
-			type: "boolean",
-			label: "Send to Notion",
-			description:
-				"Select **True** to automatically send the transcription and summary (if applicable) to Notion. Select **False** if you want this step to simply return the transcription and summary details. You can then use the returned details in another step.",
-			reloadProps: true,
-		},
 	},
 	async additionalProps(previousPropDefs) {
-		let props = { ...previousPropDefs };
+		// Debug: Log all the props bound to `this` right now
+		console.log("Debug: Current props bound to `this`");
+		console.dir(this);
+        
+        let props = { ...previousPropDefs };
 
 		if (
 			!this.transcription_service ||
-			!this.ai_service ||
-			this.send_to_notion === null ||
-			this.send_to_notion === undefined
+			!this.ai_service
 		) {
 			return props;
 		}
 
-		// Transcription client props
+		// Transcription and AI client props
         if (this.transcription_service === "OpenAI" || this.ai_service === "OpenAI") {
             props.openai = {
                 type: "app",
@@ -173,9 +168,9 @@ export default {
         }
 
 		if (this.transcription_service === "Groq" || this.ai_service === "Groq") {
-            props.groq = {
+            props.groqcloud = {
                 type: "app",
-                app: "groq",
+                app: "groqcloud",
                 description: `Add your [Groq API key](https://console.groq.com/keys). If you selected Groq for your **Transcription Service**, Groq's Whisper service will be used to transcribe your audio file to text. If you selected Groq for your **Summarization Service**, Groq will be used to summarize your text transcript.`,
                 reloadProps: true,
 			}
@@ -199,8 +194,17 @@ export default {
 			}
 		}
 
+        if (this.ai_service === "Anthropic") {
+            props.anthropic = {
+                type: "app",
+                app: "anthropic",
+                description: `Add your [Anthropic API key](https://docs.anthropic.com/en/api/messages). This will be used to summarize your text transcript.`,
+                reloadProps: true,
+            }
+        }
+        
 		/* -- Notion configuration -- */
-
+        /*
 		if (this.send_to_notion === true) {
 			props.notion = {
 				type: "app",
@@ -213,13 +217,14 @@ export default {
 				props.databaseID = common.props.databaseID
 			}
 		}
+        */
 
         /* -- Transcription Model Configuration -- */
 
         if (this.transcription_service && (
             this.openai || 
             this.deepgram || 
-            this.groq || 
+            this.groqcloud || 
             this.google_gemini || 
             this.elevenlabs
         )) {
@@ -249,7 +254,7 @@ export default {
                 type: "string",
                 label: "Speech-to-Text Model",
                 description: `${transcription_model_description}`,
-                async options() {
+                options() {
                     switch (this.transcription_service) {
                         case "OpenAI":
                             return [
@@ -288,11 +293,11 @@ export default {
 
 		/*-- Chat Model Configuration --*/
 
-        if (this.ai_service && this.ai_service !== "None (No Summary)" && (
+        if (this.ai_service && this.ai_service !== "None" && (
             this.openai || 
             this.anthropic || 
             this.google_gemini || 
-            this.groq
+            this.groqcloud
         )) {
             let chat_model_description;
             switch (this.ai_service) {
@@ -318,7 +323,7 @@ export default {
                 label: "AI Summarization Model",
                 description: `${chat_model_description}`,
                 default: "gpt-4o-mini",
-                async options() {
+                options() {
                     switch (this.ai_service) {
                         case "OpenAI":
                             return [
@@ -355,14 +360,14 @@ export default {
 
         /* -- Summary Configuration -- */
 
-		if (this.ai_service && this.ai_service !== "None (No Summary)" && (
+		if (this.ai_service && this.ai_service !== "None" && (
             this.openai ||
             this.deepgram ||
             this.google_gemini ||
-            this.groq ||
+            this.groqcloud ||
             this.elevenlabs
         )) {
-			props.summary_options = {
+            props.summary_options = {
 				type: "string[]",
 				label: "Summary Options",
 				description: `Select the options you would like to include in your summary. You can select multiple options.\n\nYou can also de-select all options, which will cause the summary step to only run once in order to generate a title for your note.`,
@@ -394,6 +399,7 @@ export default {
 		}
 
         /* -- Notion Properties Configuration -- */
+        /*
 		if (this.send_to_notion === true && this.notion && this.databaseID) {
 			const notion = new Client({
 				auth: this.notion.$auth.oauth_access_token,
