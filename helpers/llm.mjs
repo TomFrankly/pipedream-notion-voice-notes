@@ -12,6 +12,7 @@ import { GoogleGenAI } from "@google/genai";
 
 // Import local files
 import prompts from "./prompts.mjs";
+import lang from "./languages.mjs";
 
 // Import utilities
 import retry from "async-retry"; // Retry handler
@@ -24,6 +25,52 @@ import natural from "natural";
 export default {
     methods: {
         ...prompts.methods,
+
+        /**
+         * Makes a request to an LLM service with retry logic and unified response handling.
+         * This is the core function that handles all LLM API interactions, supporting multiple
+         * providers (OpenAI, Anthropic, Google Gemini, and Groq) with a consistent interface.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.service - The LLM service to use ('openai', 'anthropic', 'google_gemini', or 'groqcloud')
+         * @param {string} params.model - The specific model to use
+         * @param {string} params.prompt - The user prompt to send to the LLM
+         * @param {string} params.systemMessage - The system message/instruction for the LLM
+         * @param {number} params.temperature - Temperature setting for the LLM (0-10)
+         * @param {Function} [params.log_action] - Custom logging function for request attempts
+         * @param {string} [params.log_success] - Custom success message
+         * @param {Function} [params.log_failure] - Custom logging function for failed attempts
+         * 
+         * @returns {Promise<Object>} A promise that resolves to a unified response object containing:
+         *   @property {string} id - The response ID from the LLM service
+         *   @property {string} model - The model used for the request
+         *   @property {string} provider - The LLM service provider
+         *   @property {string} content - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} prompt_tokens - Number of tokens used in prompts
+         *     @property {number} completion_tokens - Number of tokens used in completions
+         *     @property {number} total_tokens - Total number of tokens used
+         * 
+         * @throws {Error} If the service is unsupported or if the request fails after retries
+         * 
+         * @example
+         * const response = await llmRequest({
+         *   service: 'openai',
+         *   model: 'gpt-3.5-turbo',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2,
+         *   log_action: (attempt) => `Attempt ${attempt}: Sending request to OpenAI`,
+         *   log_success: 'Request received successfully',
+         *   log_failure: (attempt, error) => `Attempt ${attempt} failed: ${error.message}`
+         * });
+         * 
+         * @note
+         * - Automatically retries failed requests up to 3 times
+         * - Normalizes responses from different LLM providers into a unified format
+         * - Handles temperature scaling for different providers
+         * - Provides detailed logging for debugging and monitoring
+         */
         async llmRequest({
             service,
             model,
@@ -77,8 +124,8 @@ export default {
                             throw new Error(`Unsupported LLM service: ${service}`);
                     }
 
-                    console.log(log_success);
-                    console.dir(response);
+                    //console.log(log_success);
+                    //console.dir(response);
                     return this.unifyLLMResponse(response, service);
                 },
                 {
@@ -90,6 +137,43 @@ export default {
             );
         },
 
+        /**
+         * Makes a request to the OpenAI API using the specified parameters.
+         * This function handles the specific formatting and requirements for OpenAI's API.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.model - The OpenAI model to use (defaults to 'gpt-3.5-turbo')
+         * @param {string} params.prompt - The user prompt to send to the model
+         * @param {string} params.systemMessage - The system message/instruction for the model
+         * @param {number} params.temperature - Temperature setting (0-10, will be divided by 10)
+         * 
+         * @returns {Promise<Object>} A promise that resolves to the OpenAI API response containing:
+         *   @property {string} id - The response ID
+         *   @property {string} model - The model used
+         *   @property {Array<Object>} choices - Array of response choices
+         *     @property {Object} choices[].message - The message object
+         *       @property {string} choices[].message.content - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} usage.prompt_tokens - Number of tokens used in prompt
+         *     @property {number} usage.completion_tokens - Number of tokens used in completion
+         *     @property {number} usage.total_tokens - Total tokens used
+         * 
+         * @throws {Error} If the API request fails or if the response is invalid
+         * 
+         * @example
+         * const response = await requestOpenAI({
+         *   model: 'gpt-3.5-turbo',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2
+         * });
+         * 
+         * @note
+         * - Uses OpenAI's chat completions API
+         * - Automatically scales temperature (divides by 10)
+         * - Requires valid OpenAI API key in auth
+         * - Handles message formatting according to OpenAI's requirements
+         */
         async requestOpenAI({ model, prompt, systemMessage, temperature }) {
             const openai = new OpenAI({ apiKey: this.openai.$auth.api_key });
             
@@ -115,6 +199,43 @@ export default {
             }
         },
 
+        /**
+         * Makes a request to the Groq API using the specified parameters.
+         * This function handles the specific formatting and requirements for Groq's API.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.model - The Groq model to use (defaults to 'llama-3.1-8b-instant')
+         * @param {string} params.prompt - The user prompt to send to the model
+         * @param {string} params.systemMessage - The system message/instruction for the model
+         * @param {number} params.temperature - Temperature setting (0-10, will be divided by 10)
+         * 
+         * @returns {Promise<Object>} A promise that resolves to the Groq API response containing:
+         *   @property {string} id - The response ID
+         *   @property {string} model - The model used
+         *   @property {Array<Object>} choices - Array of response choices
+         *     @property {Object} choices[].message - The message object
+         *       @property {string} choices[].message.content - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} usage.prompt_tokens - Number of tokens used in prompt
+         *     @property {number} usage.completion_tokens - Number of tokens used in completion
+         *     @property {number} usage.total_tokens - Total tokens used
+         * 
+         * @throws {Error} If the API request fails or if the response is invalid
+         * 
+         * @example
+         * const response = await requestGroq({
+         *   model: 'llama-3.1-8b-instant',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2
+         * });
+         * 
+         * @note
+         * - Uses Groq's chat completions API
+         * - Automatically scales temperature (divides by 10)
+         * - Requires valid Groq API key in auth
+         * - Handles message formatting according to Groq's requirements
+         */
         async requestGroq({ model, prompt, systemMessage, temperature }) {
             const groq = new Groq({ apiKey: this.groqcloud.$auth.api_key });
             
@@ -140,6 +261,44 @@ export default {
             }
         },
 
+        /**
+         * Makes a request to the Anthropic API using the specified parameters.
+         * This function handles the specific formatting and requirements for Anthropic's API.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.model - The Anthropic model to use (defaults to 'claude-3-5-haiku-latest')
+         * @param {string} params.prompt - The user prompt to send to the model
+         * @param {string} params.systemMessage - The system message/instruction for the model
+         * @param {number} params.temperature - Temperature setting (0-10, will be scaled appropriately)
+         * 
+         * @returns {Promise<Object>} A promise that resolves to the Anthropic API response containing:
+         *   @property {string} id - The response ID
+         *   @property {string} model - The model used
+         *   @property {Array<Object>} content - Array of content blocks
+         *     @property {string} content[].text - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} usage.input_tokens - Number of tokens used in input
+         *     @property {number} usage.output_tokens - Number of tokens used in output
+         * 
+         * @throws {Error} If the API request fails or if the response is invalid
+         * 
+         * @example
+         * const response = await requestAnthropic({
+         *   model: 'claude-3-5-haiku-latest',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2
+         * });
+         * 
+         * @note
+         * - Uses Anthropic's messages API
+         * - Has special temperature scaling logic:
+         *   - > 10: scales to 1
+         *   - > 1: scales to 0.1-1.0
+         *   - ≤ 1: uses as is
+         * - Requires valid Anthropic API key in auth
+         * - Handles message formatting according to Anthropic's requirements
+         */
         async requestAnthropic({ model, prompt, systemMessage, temperature }) {
             const anthropic = new Anthropic({ apiKey: this.anthropic.$auth.api_key });
             
@@ -163,6 +322,44 @@ export default {
             }
         },
 
+        /**
+         * Makes a request to the Google Gemini API using the specified parameters.
+         * This function handles the specific formatting and requirements for Google's API.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.model - The Google model to use (defaults to 'gemini-2.0-flash')
+         * @param {string} params.prompt - The user prompt to send to the model
+         * @param {string} params.systemMessage - The system message/instruction for the model
+         * @param {number} params.temperature - Temperature setting (0-10, will be divided by 10)
+         * 
+         * @returns {Promise<Object>} A promise that resolves to the Google API response containing:
+         *   @property {string} modelVersion - The model version used
+         *   @property {Array<Object>} candidates - Array of response candidates
+         *     @property {Object} candidates[].content - The content object
+         *       @property {Array<Object>} candidates[].content.parts - Array of content parts
+         *         @property {string} candidates[].content.parts[].text - The generated content
+         *   @property {Object} usageMetadata - Token usage statistics
+         *     @property {number} usageMetadata.promptTokenCount - Number of tokens used in prompt
+         *     @property {number} usageMetadata.candidatesTokenCount - Number of tokens used in response
+         *     @property {number} usageMetadata.totalTokenCount - Total tokens used
+         * 
+         * @throws {Error} If the API request fails or if the response is invalid
+         * 
+         * @example
+         * const response = await requestGoogle({
+         *   model: 'gemini-2.0-flash',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2
+         * });
+         * 
+         * @note
+         * - Uses Google's Gemini API
+         * - Automatically scales temperature (divides by 10)
+         * - Requires valid Google API key in auth
+         * - Handles message formatting according to Google's requirements
+         * - Uses systemInstruction for system messages
+         */
         async requestGoogle({ model, prompt, systemMessage, temperature }) {
             const genAI = new GoogleGenAI({ apiKey: this.google_gemini.$auth.api_key });
             
@@ -182,6 +379,51 @@ export default {
             }
         },
 
+        /**
+         * Normalizes responses from different LLM providers into a unified format.
+         * This function handles the conversion of provider-specific response structures
+         * into a consistent format that can be used throughout the application.
+         * 
+         * @param {Object} response - The raw response from the LLM provider
+         * @param {string} service - The LLM service provider ('openai', 'anthropic', 'google_gemini', or 'groqcloud')
+         * 
+         * @returns {Object} A unified response object containing:
+         *   @property {string} id - The response ID from the LLM service
+         *   @property {string} model - The model used for the request
+         *   @property {string} provider - The LLM service provider
+         *   @property {string} content - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} prompt_tokens - Number of tokens used in prompts
+         *     @property {number} completion_tokens - Number of tokens used in completions
+         *     @property {number} total_tokens - Total number of tokens used
+         * 
+         * @throws {Error} If the service is unsupported or if the response format is invalid
+         * 
+         * @example
+         * // OpenAI response
+         * const openaiResponse = {
+         *   id: 'chatcmpl-123',
+         *   model: 'gpt-3.5-turbo',
+         *   choices: [{ message: { content: 'Hello' } }],
+         *   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+         * };
+         * const unified = unifyLLMResponse(openaiResponse, 'openai');
+         * 
+         * // Anthropic response
+         * const anthropicResponse = {
+         *   id: 'msg_123',
+         *   model: 'claude-3-haiku',
+         *   content: [{ text: 'Hello' }],
+         *   usage: { input_tokens: 10, output_tokens: 5 }
+         * };
+         * const unified = unifyLLMResponse(anthropicResponse, 'anthropic');
+         * 
+         * @note
+         * - Handles different token counting methods between providers
+         * - Normalizes content extraction from different response structures
+         * - Maintains consistent property names across all providers
+         * - Provides fallback values for optional properties
+         */
         unifyLLMResponse(response, service) {
             console.log(`Converting ${service} API response to unified format...`);
 
@@ -253,7 +495,37 @@ export default {
             }
         },
 
-        // Splits a transcript into chunks of a specified maximum number of tokens
+        
+        /**
+         * Splits an encoded transcript into chunks of specified maximum token length,
+         * while preserving sentence boundaries and handling special cases for different
+         * languages and punctuation.
+         * 
+         * @param {number[]} encodedTranscript - Array of token IDs representing the encoded transcript
+         * @param {number} maxTokens - Maximum number of tokens allowed per chunk
+         * @param {Object} periodInfo - Information about sentence boundaries and gaps
+         * @param {number} periodInfo.longestGap - The longest gap between sentences (-1 if no periods found)
+         * 
+         * @returns {string[]} Array of decoded text chunks, where each chunk:
+         *   - Does not exceed maxTokens in length
+         *   - Respects sentence boundaries where possible
+         *   - Is properly decoded from token IDs to text
+         * 
+         * @throws {Error} If the input is invalid or if decoding fails
+         * 
+         * @example
+         * const encodedText = encode("This is the first sentence. This is the second sentence.");
+         * const periodInfo = { longestGap: 1 };
+         * const chunks = splitTranscript(encodedText, 10, periodInfo);
+         * // Returns: ["This is the first sentence.", "This is the second sentence."]
+         * 
+         * @note
+         * - Uses GPT-3 encoder for tokenization
+         * - Attempts to split at sentence boundaries when possible
+         * - Falls back to splitting at the nearest space if no sentence boundary is found
+         * - Handles special cases for different languages and punctuation
+         * - Preserves original text formatting and structure
+         */
         splitTranscript(encodedTranscript, maxTokens, periodInfo) {
 			console.log(`Splitting transcript into chunks of ${maxTokens} tokens...`);
 
@@ -334,9 +606,20 @@ export default {
          * @throws {Error} - Throws an error if the language detection fails.
          */
         async detectLanguage(service, model, text) {
-            const systemMessage = `Detect the language of the prompt, then return a valid JSON object containing the language name and language code of the text.
-                                    
-            Example: {"label": "English", "value": "en"}`;
+            const systemMessage = `You are a language detection service. Your ONLY task is to detect the language of the provided text and return a valid JSON object with exactly two properties:
+1. "label": The full name of the detected language in English (e.g., "English", "Spanish", "French")
+2. "value": The ISO 639-1 language code (e.g., "en", "es", "fr")
+
+IMPORTANT RULES:
+- Return ONLY the JSON object, nothing else
+- Do not include any explanations, code, or additional text
+- Do not use any external libraries or code
+- If the language cannot be determined, return {"label": "Unknown", "value": "unknown"}
+
+Example valid response: {"label": "English", "value": "en"}
+
+IMPORTANT: Do not include any explanatory text, markdown formatting, or code blocks.`;
+
         
             try {
                 const response = await this.llmRequest({
@@ -357,35 +640,76 @@ export default {
         },
 
         /**
-         * Translates an array of text paragraphs into the specified language.
-         *
-         * @param {string} service - The service provider, e.g., "OpenAI" or "Anthropic".
-         * @param {string} model - The specific language model to use for translation.
-         * @param {string[]} stringsArray - Array of text paragraphs to translate.
-         * @param {Object} language - Object containing language label and value.
-         * @param {number} temperature - Temperature setting for the translation (default: 0.2).
-         * @param {number} maxConcurrent - Maximum number of concurrent translations (default: 35).
-         * @returns {Promise<Object>} - A promise that resolves to the translation results.
-         * @throws {Error} - Throws an error if the translation fails.
+         * Translates an array of text paragraphs into the specified language using the chosen LLM service.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.service - The LLM service to use ('openai', 'anthropic', 'google_gemini', or 'groqcloud')
+         * @param {string} params.model - The specific model to use for translation
+         * @param {string[]} params.stringsArray - Array of text paragraphs to translate
+         * @param {string} params.languageCode - ISO 639-1 language code for the target language
+         * @param {number} [params.temperature=2] - Temperature setting for the LLM (0-10)
+         * @param {Function} [params.log_action] - Custom logging function for request attempts
+         * @param {Function} [params.log_success] - Custom logging function for successful requests
+         * @param {Function} [params.log_failure] - Custom logging function for failed requests
+         * 
+         * @returns {Promise<Object>} A promise that resolves to an object containing:
+         *   @property {string[]} paragraphs - Array of translated paragraphs
+         *   @property {string} language - Full name of the target language
+         *   @property {string} languageCode - ISO 639-1 code of the target language
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} prompt_tokens - Number of tokens used in prompts
+         *     @property {number} completion_tokens - Number of tokens used in completions
+         *     @property {number} total_tokens - Total number of tokens used
+         *   @property {string} model - Name of the model used for translation
+         * 
+         * @throws {Error} If the language code is invalid or if translation fails
+         * 
+         * @example
+         * const result = await translateParagraphs({
+         *   service: 'openai',
+         *   model: 'gpt-3.5-turbo',
+         *   stringsArray: ['Hello world', 'How are you?'],
+         *   languageCode: 'es',
+         *   temperature: 2
+         * });
          */
-        async translateParagraphs(
+        async translateParagraphs({
             service,
             model,
             stringsArray,
-            language,
+            languageCode,
             temperature = 2,
-            maxConcurrent = 35
-        ) {
+            log_action = (attempt, index) => `Attempt ${attempt}: Sending paragraph ${index} to ${service} for translation...`,
+            log_success = (index) => `Paragraph ${index} received successfully.`,
+            log_failure = (attempt, error, index) => `Attempt ${attempt} for translation of paragraph ${index} failed with error: ${error.message}. Retrying...`
+        }) {
             try {
+                // Find the language object from the languages array
+                const language = lang.LANGUAGES.find(lang => lang.value === languageCode);
+                if (!language) {
+                    throw new Error(`Invalid language code: ${languageCode}`);
+                }
+
+                let maxConcurrent
+                if (this.ai_service === "openai") {
+                    maxConcurrent = 35;
+                } else if (this.ai_service === "anthropic") {
+                    maxConcurrent = 35;
+                } else if (this.ai_service === "google_gemini") {
+                    maxConcurrent = 15;
+                } else if (this.ai_service === "groqcloud") {
+                    maxConcurrent = 25;
+                }
+                
                 const limiter = new Bottleneck({
                     maxConcurrent: maxConcurrent,
                 });
 
-                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for translation...`);
+                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for translation to ${language.label} (ISO 639-1 code: ${language.value}) using ${model}...`);
                 
                 const results = await limiter.schedule(() => {
                     const tasks = stringsArray.map((text, index) => {
-                        const systemMessage = `Translate the text into ${language.label} (ISO 639-1 code: ${language.value}).`;
+                        const systemMessage = `You are a translator. Your task is to translate the provided text into ${language.label} (ISO 639-1 code: ${language.value}). Do not add any preamble, introduction, or suffix to your translation. Do not explain your translation or add any notes. Simply output the translated text and nothing else. Maintain the original formatting, including line breaks and punctuation.`;
 
                         return this.llmRequest({
                             service,
@@ -393,9 +717,9 @@ export default {
                             prompt: text,
                             systemMessage,
                             temperature,
-                            log_action: (attempt) => `Attempt ${attempt}: Sending paragraph ${index} to ${service} for translation...`,
-                            log_success: `Paragraph ${index} received successfully.`,
-                            log_failure: (attempt, error) => `Attempt ${attempt} for translation of paragraph ${index} failed with error: ${error.message}. Retrying...`
+                            log_action: (attempt) => log_action(attempt, index),
+                            log_success: log_success(index),
+                            log_failure: (attempt, error) => log_failure(attempt, error, index)
                         });
                     });
                     return Promise.all(tasks);
@@ -408,6 +732,7 @@ export default {
                     usage: {
                         prompt_tokens: results.reduce((total, item) => total + item.usage.prompt_tokens, 0),
                         completion_tokens: results.reduce((total, item) => total + item.usage.completion_tokens, 0),
+                        total_tokens: results.reduce((total, item) => total + item.usage.total_tokens, 0)
                     },
                     model: results[0].model,
                 };
@@ -419,6 +744,18 @@ export default {
                 throw new Error(`An error occurred while translating the transcript: ${error.message}`);
             }
         },
+
+        /**
+         * Repairs JSON strings that are not valid JSON.
+         * 
+         * @param {string} input - The JSON string to repair
+         * @returns {Object} The repaired JSON object
+         * @throws {Error} If the JSON string is not valid or if repair fails
+         * 
+         * @example
+         * const repairedJSON = repairJSON('{"name": "John", "age": 30}');
+         * console.log(repairedJSON); // { name: 'John', age: 30 }
+         */
         repairJSON(input) {
 			let jsonObj;
 			try {
@@ -464,6 +801,41 @@ export default {
 				}
 			}
 		},
+
+        
+        /**
+         * Sends an array of text chunks to the specified LLM service for processing.
+         * This function handles concurrent requests with rate limiting and retries.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.service - The LLM service to use ('openai', 'anthropic', 'google_gemini', or 'groqcloud')
+         * @param {string} params.model - The specific model to use for processing
+         * @param {string[]} params.stringsArray - Array of text chunks to process
+         * @param {Function} [params.log_action] - Custom logging function for request attempts
+         * @param {Function} [params.log_success] - Custom logging function for successful requests
+         * @param {Function} [params.log_failure] - Custom logging function for failed requests
+         * 
+         * @returns {Promise<Array<Object>>} A promise that resolves to an array of LLM responses, where each response contains:
+         *   @property {string} content - The processed content from the LLM
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} prompt_tokens - Number of tokens used in prompts
+         *     @property {number} completion_tokens - Number of tokens used in completions
+         *     @property {number} total_tokens - Total number of tokens used
+         *   @property {string} model - Name of the model used
+         *   @property {string} provider - The LLM service provider
+         * 
+         * @throws {Error} If processing fails or if the service is unsupported
+         * 
+         * @example
+         * const results = await sendToChat({
+         *   service: 'openai',
+         *   model: 'gpt-3.5-turbo',
+         *   stringsArray: ['First chunk', 'Second chunk'],
+         *   log_action: (attempt, index) => `Processing chunk ${index}, attempt ${attempt}`,
+         *   log_success: (index) => `Chunk ${index} processed successfully`,
+         *   log_failure: (attempt, error, index) => `Failed to process chunk ${index}: ${error.message}`
+         * });
+         */
         async sendToChat({
             service,
             model,
@@ -520,6 +892,57 @@ export default {
             }
         },
 
+        
+        /**
+         * Formats and consolidates an array of LLM responses into a structured chat response.
+         * This function processes multiple chunks of LLM responses and combines them into
+         * a single, well-organized response object with various analysis components.
+         * 
+         * @param {Array<Object>} summaryArray - Array of LLM response objects to format
+         * @param {Object} summaryArray[].content - The content from each LLM response
+         * @param {Object} summaryArray[].usage - Token usage statistics for each response
+         * 
+         * @returns {Object} A formatted chat response containing:
+         *   @property {string} title - The AI-generated title from the first response
+         *   @property {string} summary - Combined summary of all responses
+         *   @property {string} [sentiment] - Overall sentiment analysis (if requested)
+         *   @property {Array<string>} main_points - List of key points extracted
+         *   @property {Array<string>} action_items - List of actionable items identified
+         *   @property {Array<string>} stories - List of stories or examples mentioned
+         *   @property {Array<string>} references - List of references or citations
+         *   @property {Array<string>} arguments - List of arguments or points made
+         *   @property {Array<string>} follow_up - List of follow-up questions or topics
+         *   @property {Array<string>} [related_topics] - List of related topics (if requested)
+         *   @property {number} tokens - Total tokens used across all responses
+         * 
+         * @throws {Error} If the response format is invalid or if JSON repair fails
+         * 
+         * @example
+         * const summaryArray = [
+         *   {
+         *     content: '{"title": "Meeting Summary", "summary": "First part", "main_points": ["Point 1"]}',
+         *     usage: { total_tokens: 100 }
+         *   },
+         *   {
+         *     content: '{"summary": "Second part", "main_points": ["Point 2"]}',
+         *     usage: { total_tokens: 150 }
+         *   }
+         * ];
+         * const formatted = formatChat(summaryArray);
+         * // Returns: {
+         * //   title: "Meeting Summary",
+         * //   summary: "First part Second part",
+         * //   main_points: ["Point 1", "Point 2"],
+         * //   tokens: 250
+         * // }
+         * 
+         * @note
+         * - Repairs and validates JSON from each response
+         * - Combines and flattens arrays from multiple responses
+         * - Deduplicates related topics
+         * - Calculates total token usage
+         * - Handles optional components based on summary options
+         */
         async formatChat(summaryArray) {
             const resultsArray = [];
             console.log(`Formatting the LLM results...`);
@@ -610,10 +1033,43 @@ export default {
             return finalChatResponse;
         },
 
+        
+        /**
+         * Splits a transcript into paragraphs of appropriate length, respecting sentence boundaries
+         * and language-specific formatting rules. Uses Intl.Segmenter for sentence segmentation
+         * with a fallback to natural.SentenceTokenizer.
+         * 
+         * @param {string} transcript - The full transcript text to split into paragraphs
+         * @param {number} [maxLength=1200] - Maximum character length for each paragraph
+         * 
+         * @returns {string[]} Array of paragraphs, where each paragraph:
+         *   - Respects sentence boundaries
+         *   - Does not exceed maxLength
+         *   - Maintains proper formatting
+         *   - Is optimized for the detected language
+         * 
+         * @throws {Error} If both Intl.Segmenter and natural.SentenceTokenizer fail
+         * 
+         * @example
+         * const paragraphs = makeParagraphs(
+         *   "This is the first sentence. This is the second sentence. This is the third sentence.",
+         *   100
+         * );
+         * // Returns: ["This is the first sentence. This is the second sentence.", "This is the third sentence."]
+         * 
+         * @note
+         * - Uses 3 sentences per paragraph for Chinese and undetermined languages
+         * - Uses 4 sentences per paragraph for all other languages
+         * - Falls back to natural.SentenceTokenizer if Intl.Segmenter is not available
+         * - Handles special cases for Chinese text using specific punctuation marks
+         */
         makeParagraphs(transcript, maxLength = 1200) {
             console.log(`Starting paragraph creation with maxLength: ${maxLength}`);
             const languageCode = franc(transcript);
             console.log(`Detected language with franc library: ${languageCode}`);
+
+            // Normalize spaces in the input transcript
+            transcript = transcript.replace(/\s+/g, ' ').trim();
 
             // Set sentences per paragraph based on language
             const sentencesPerParagraph = (languageCode === "cmn" || languageCode === "und") ? 3 : 4;
@@ -624,9 +1080,9 @@ export default {
                 // Create a segmenter for sentences
                 const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
                 
-                // Get sentence segments
+                // Get sentence segments and normalize spaces
                 const segments = Array.from(segmenter.segment(transcript));
-                const sentences = segments.map(segment => segment.segment);
+                const sentences = segments.map(segment => segment.segment.trim());
                 
                 console.log(`Intl.Segmenter successfully created ${sentences.length} sentence segments`);
                 console.log(`First few sentences for verification:`);
@@ -637,7 +1093,7 @@ export default {
                 // Group sentences into paragraphs
                 const paragraphs = [];
                 for (let i = 0; i < sentences.length; i += sentencesPerParagraph) {
-                    paragraphs.push(sentences.slice(i, i + sentencesPerParagraph).join(' '));
+                    paragraphs.push(sentences.slice(i, i + sentencesPerParagraph).join(' ').trim());
                 }
 
                 console.log(`Grouped sentences into ${paragraphs.length} initial paragraphs`);
@@ -665,18 +1121,30 @@ export default {
                     let chunkCount = 0;
                     
                     for (const word of words) {
-                        if (currentChunk.length + word.segment.length + 1 <= maxLength) {
-                            currentChunk += (currentChunk ? ' ' : '') + word.segment;
+                        const wordSegment = word.segment.trim();
+                        // Skip empty segments
+                        if (!wordSegment) continue;
+                        
+                        // Check if the segment is punctuation
+                        const isPunctuation = /^[.,!?;:()\-–—]$/.test(wordSegment);
+                        
+                        if (currentChunk.length + wordSegment.length + (isPunctuation ? 0 : 1) <= maxLength) {
+                            // For punctuation, don't add a space before it
+                            if (isPunctuation) {
+                                currentChunk += wordSegment;
+                            } else {
+                                currentChunk += (currentChunk ? ' ' : '') + wordSegment;
+                            }
                         } else {
                             if (currentChunk) {
-                                finalParagraphs.push(currentChunk);
+                                finalParagraphs.push(currentChunk.trim());
                                 chunkCount++;
                             }
-                            currentChunk = word.segment;
+                            currentChunk = wordSegment;
                         }
                     }
                     if (currentChunk) {
-                        finalParagraphs.push(currentChunk);
+                        finalParagraphs.push(currentChunk.trim());
                         chunkCount++;
                     }
                     console.log(`Split paragraph into ${chunkCount} chunks`);
@@ -700,12 +1168,13 @@ export default {
                     console.log(`Detected language is Chinese or undetermined, splitting by punctuation...`);
                     transcriptSentences = transcript
                         .split(/[\u3002\uff1f\uff01\uff1b\uff1a\u201c\u201d\u2018\u2019]/)
+                        .map(s => s.trim())
                         .filter(Boolean);
                     console.log(`Split Chinese text into ${transcriptSentences.length} sentences using punctuation`);
                 } else {
                     console.log(`Detected language is not Chinese, splitting by sentence tokenizer...`);
                     const tokenizer = new natural.SentenceTokenizer();
-                    transcriptSentences = tokenizer.tokenize(transcript);
+                    transcriptSentences = tokenizer.tokenize(transcript).map(s => s.trim());
                     console.log(`Split text into ${transcriptSentences.length} sentences using natural.SentenceTokenizer`);
                 }
 
@@ -718,7 +1187,7 @@ export default {
                     console.log(`Grouping ${arr.length} sentences into paragraphs of ${sentencesPerParagraph} sentences each`);
                     const newArray = [];
                     for (let i = 0; i < arr.length; i += sentencesPerParagraph) {
-                        newArray.push(arr.slice(i, i + sentencesPerParagraph).join(" "));
+                        newArray.push(arr.slice(i, i + sentencesPerParagraph).join(" ").trim());
                     }
                     console.log(`Created ${newArray.length} initial paragraphs`);
                     return newArray;
@@ -752,7 +1221,7 @@ export default {
                                     nextSpaceIndex--;
                                 }
 
-                                chunks.push(element.substring(currentIndex, nextSpaceIndex));
+                                chunks.push(element.substring(currentIndex, nextSpaceIndex).trim());
                                 chunkCount++;
                                 currentIndex = nextSpaceIndex + 1;
                             }

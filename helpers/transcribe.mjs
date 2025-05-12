@@ -8,10 +8,12 @@ import {
     createUserContent,
     createPartFromUri,
 } from "@google/genai";
+import { AssemblyAI } from "assemblyai"; // AssemblyAI SDK
 import fs from "fs";
 import { join } from "path";
 import retry from "async-retry";
 import Bottleneck from "bottleneck";
+import fetch from "node-fetch"; // Add fetch import
 
 export default {
     methods: {
@@ -34,6 +36,9 @@ export default {
             } else if (this.transcription_service === "google_gemini") {
                 maxConcurrent = 15;
                 apiKey = this.google_gemini.$auth.api_key;
+            } else if (this.transcription_service === "assemblyai") {
+                maxConcurrent = 5;
+                apiKey = this.assemblyai.$auth.api_key;
             }
 
             console.log(`Limiting transcription to ${maxConcurrent} concurrent requests.`);
@@ -90,7 +95,7 @@ export default {
                                 break;
                             case "groqcloud":
                                 console.log("Routing to Groq transcription");
-                            result = await this.transcribeGroq({ model, apiKey, readStream });
+                                result = await this.transcribeGroq({ model, apiKey, readStream });
                                 break;
                             case "deepgram":
                                 console.log("Routing to Deepgram transcription");
@@ -103,6 +108,10 @@ export default {
                             case "google_gemini":
                                 console.log("Routing to Google Gemini transcription");
                                 result = await this.transcribeGoogle({ file, outputDir, model, apiKey, readStream });
+                                break;
+                            case "assemblyai":
+                                console.log("Routing to AssemblyAI transcription");
+                                result = await this.transcribeAssemblyAI({ model, apiKey, readStream });
                                 break;
                             default:
                                 throw new Error(`Unsupported transcription service: ${service}`);
@@ -262,30 +271,46 @@ export default {
             }
         },
 
-        async transcribeDeepgram({ model = "nova-3", apiKey, readStream }) {
-            const deepgram = createClient(apiKey);
-            
+        async transcribeDeepgramFetch({ model = "nova-3", apiKey, readStream, params }) {
             try {
-                console.log("Starting Deepgram transcription request...");
-                const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-                    readStream,
-                    {
-                        model: model,
-                        detect_language: true,
-                        diarize: true,
-                        numerals: true,
-                        measurements: true,
-                        punctuate: true,
-                        dictation: true,
-                        summarize: "v2",
-                        utterances: true
-                    }
-                );
-
-                if (error) {
-                    console.error("Deepgram error response:", error);
-                    throw new Error(`Deepgram error: ${error.message}`);
+                console.log("Starting Deepgram transcription request using fetch...");
+                
+                // Convert readStream to buffer
+                const chunks = [];
+                for await (const chunk of readStream) {
+                    chunks.push(chunk);
                 }
+                const audioData = Buffer.concat(chunks);
+
+                // Define request headers
+                const headers = {
+                    Accept: "application/json",
+                    Authorization: `Token ${apiKey}`,
+                    "Content-Type": "audio/wav",
+                };
+
+                // Define request options
+                const options = {
+                    method: "POST",
+                    headers: headers,
+                    body: audioData,
+                };
+
+                // Make the POST request using fetch
+                const url = new URL("https://api.deepgram.com/v1/listen");
+                
+                // Add all parameters from the passed params object
+                Object.entries(params).forEach(([key, value]) => {
+                    url.searchParams.append(key, value.toString());
+                });
+
+                const response = await fetch(url, options);
+                
+                if (!response.ok) {
+                    throw new Error(`Deepgram API error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
 
                 // Debug logging for response structure
                 console.log("Deepgram response structure:", {
@@ -307,25 +332,95 @@ export default {
                 // Log the actual response object structure
                 console.log("Raw Deepgram response:", JSON.stringify(result, null, 2).substring(0, 500) + "...");
 
-                const vttOutput = webvtt(result);
-
-                // Log the VTT output structure
-                console.log("VTT output structure:", {
-                    hasVtt: !!vttOutput,
-                    vttLength: vttOutput?.length,
-                    vttPreview: vttOutput?.substring(0, 100) + "..."
+                return result;
+            } catch (error) {
+                console.error("Deepgram transcription error details:", {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack?.split('\n').slice(0, 3).join('\n')
                 });
+                throw new Error(`Deepgram transcription error: ${error.message}`);
+            }
+        },
 
-                // Create the return object
+        async transcribeDeepgram({ model = "nova-3", apiKey, readStream, useSDK = true }) {
+            try {
+                console.log("Starting Deepgram transcription request...");
+                let result;
+
+                // Define common parameters for both SDK and fetch
+                const transcriptionParams = {
+                    model: model,
+                    detect_language: true,
+                    diarize: true,
+                    numerals: false,
+                    fill_words: false,
+                    measurements: false,
+                    profanity_filter: false,
+                    smart_format: false,
+                    dictation: false,
+                    punctuate: true,
+                    utterances: true
+                };
+
+                if (useSDK) {
+                    console.log("Using Deepgram SDK for transcription...");
+                    const deepgram = createClient(apiKey);
+                    const { result: sdkResult, error } = await deepgram.listen.prerecorded.transcribeFile(
+                        readStream,
+                        transcriptionParams
+                    );
+
+                    if (error) {
+                        console.error("Deepgram error response:", error);
+                        throw new Error(`Deepgram error: ${error.message}`);
+                    }
+                    result = sdkResult;
+                } else {
+                    console.log("Using fetch for Deepgram transcription...");
+                    result = await this.transcribeDeepgramFetch({ 
+                        model, 
+                        apiKey, 
+                        readStream,
+                        params: transcriptionParams 
+                    });
+                }
+
+                if (result.error) {
+                    console.error("Deepgram error response:", result.error);
+                    throw new Error(`Deepgram error: ${result.error.message}`);
+                }
+
+                // Safely generate VTT output
+                let vttOutput = '';
+                try {
+                    if (result && result.results && result.results.channels && result.results.channels[0]) {
+                        vttOutput = webvtt(result);
+
+                        // Log the VTT output structure
+                        console.log("VTT output structure:", {
+                            hasVtt: !!vttOutput,
+                            vttLength: vttOutput?.length,
+                            vttPreview: vttOutput?.substring(0, 100) + "..."
+                        });
+                    } else {
+                        console.warn("Deepgram response missing expected structure for VTT generation");
+                    }
+                } catch (vttError) {
+                    console.warn("Error generating VTT:", vttError);
+                    // Continue without VTT if generation fails
+                }
+
+                // Create the return object with safe property access
                 const returnObject = {
-                    text: result.results.channels[0].alternatives[0].transcript,
-                    confidence: result.results.channels[0].alternatives[0].confidence,
-                    paragraphs: result.results.channels[0].alternatives[0].paragraphs?.transcript,
-                    language: result.results.channels[0].detected_language,
-                    utterances: result.results.utterances,
+                    text: result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '',
+                    confidence: result?.results?.channels?.[0]?.alternatives?.[0]?.confidence,
+                    paragraphs: result?.results?.channels?.[0]?.alternatives?.[0]?.paragraphs?.transcript,
+                    language: result?.results?.channels?.[0]?.detected_language,
+                    utterances: result?.results?.utterances,
                     vtt: vttOutput,
                     metadata: {
-                        ...result.metadata,
+                        ...(result?.metadata || {}),
                         model
                     }
                 };
@@ -371,7 +466,7 @@ export default {
 
                 return {
                     text: response.text,
-                    timestamps: response.timestamps,
+                    vtt: response.additional_formats[0].content,
                     speakers: response.speakers,
                     audio_events: response.audio_events,
                     additional_formats: response.additional_formats,
@@ -424,25 +519,90 @@ export default {
             }
         },
 
-        generateVTT(timestamps) {
+        async transcribeAssemblyAI({ model = "best", apiKey, readStream }) {
+            try {
+                console.log("Starting AssemblyAI transcription request...");
+                
+                // Initialize AssemblyAI client
+                const client = new AssemblyAI({
+                    apiKey,
+                });
+
+                // Define transcription parameters similar to Deepgram
+                const transcriptionParams = {
+                    audio: readStream,
+                    speech_model: model,
+                    language_detection: true,
+                    language_confidence_threshold: 0.7,
+                    speaker_labels: true,
+                    format_text: true,
+                    punctuate: true,
+                    boost_param: "high",
+                    filter_profanity: false,
+                    disfluencies: false,
+                    auto_chapters: false,
+                    auto_highlights: false,
+                    sentiment_analysis: false,
+                    summarization: false,
+                    iab_categories: false,
+                    redact_pii: false,
+                    multichannel: false
+                };
+
+                // Submit transcription request and wait for completion
+                const result = await client.transcripts.transcribe(transcriptionParams);
+
+                if (result.status === "error") {
+                    throw new Error(`AssemblyAI transcription failed: ${result.error}`);
+                }
+
+                // Use utterances array for VTT generation if available
+                const utterances = result.utterances || [];
+
+                return {
+                    text: result.text,
+                    confidence: result.confidence,
+                    language: result.language_code,
+                    vtt: this.generateVTT(utterances, { includeSpeaker: true }),
+                    metadata: {
+                        speech_model: result.speech_model,
+                        duration: result.audio_duration,
+                        speakers: result.speakers,
+                        language_confidence: result.language_confidence,
+                        entities: result.entities,
+                    }
+                };
+            } catch (error) {
+                console.error("AssemblyAI transcription error details:", {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack?.split('\n').slice(0, 3).join('\n')
+                });
+                throw new Error(`AssemblyAI transcription error: ${error.message}`);
+            }
+        },
+
+        generateVTT(timestamps, options = {}) {
             if (!timestamps || !Array.isArray(timestamps)) {
                 return '';
             }
 
             let vtt = '';
-
-            // Convert each timestamp segment to VTT format
             timestamps.forEach((segment, index) => {
-                // Format timestamps to VTT format (HH:MM:SS.mmm)
-                const startTime = this.formatTimestamp(segment.start);
-                const endTime = this.formatTimestamp(segment.end);
-                
-                // Add cue number and timestamps
+                // If start/end are in ms, convert to seconds
+                const startSec = segment.start > 1000 ? segment.start / 1000 : segment.start;
+                const endSec = segment.end > 1000 ? segment.end / 1000 : segment.end;
+                const startTime = this.formatTimestamp(startSec);
+                const endTime = this.formatTimestamp(endSec);
+
                 vtt += `${index + 1}\n`;
                 vtt += `${startTime} --> ${endTime}\n`;
-                
-                // Add text content
-                vtt += `${segment.text.trim()}\n\n`;
+
+                let text = segment.text ? segment.text.trim() : '';
+                if (options.includeSpeaker && segment.speaker) {
+                    text = `Speaker ${segment.speaker}: ${text}`;
+                }
+                vtt += `${text}\n\n`;
             });
 
             return vtt;

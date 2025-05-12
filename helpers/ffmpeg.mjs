@@ -45,7 +45,7 @@ export default {
             const minutes = Math.floor((seconds % 3600) / 60);
             const remainingSeconds = seconds % 60;
             
-            return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
         },
         async chunkFile({ file }) {
 			const chunkDirName = "chunks-" + this.steps.trigger.context.id;
@@ -60,11 +60,23 @@ export default {
 			const ext = extname(file);
 
 			const fileSizeInMB = fs.statSync(file).size / (1024 * 1024);
-			const chunkSize = this.chunk_size ?? 24;
-			const numberOfChunks = Math.ceil(fileSizeInMB / chunkSize);
+			const maxChunkSize = 24; // Maximum chunk size in MB
+			const minChunkSize = 2;  // Minimum chunk size in MB
+			const targetChunkSize = this.chunk_size ?? maxChunkSize;
+			
+			// Calculate number of chunks needed to ensure minimum chunk size
+			let numberOfChunks = Math.ceil(fileSizeInMB / targetChunkSize);
+			let adjustedChunkSize = targetChunkSize;
+			
+			// If the last chunk would be too small, adjust the chunk size
+			const lastChunkSize = fileSizeInMB - (Math.floor(fileSizeInMB / targetChunkSize) * targetChunkSize);
+			if (lastChunkSize < minChunkSize && numberOfChunks > 1) {
+				numberOfChunks = Math.floor(fileSizeInMB / minChunkSize);
+				adjustedChunkSize = Math.ceil(fileSizeInMB / numberOfChunks);
+			}
 
 			console.log(
-				`Full file size: ${fileSizeInMB}mb. Chunk size: ${chunkSize}mb. Expected number of chunks: ${numberOfChunks}. Commencing chunking...`
+				`Full file size: ${fileSizeInMB.toFixed(2)}MB. Target chunk size: ${targetChunkSize}MB. Adjusted chunk size: ${adjustedChunkSize}MB. Number of chunks: ${numberOfChunks}. Commencing chunking...`
 			);
 
 			if (numberOfChunks === 1) {
@@ -119,9 +131,14 @@ export default {
 				const [hours, minutes, seconds] = duration.split(":").map(parseFloat);
 
 				const totalSeconds = hours * 60 * 60 + minutes * 60 + seconds;
-				const segmentTime = Math.ceil(totalSeconds / numberOfChunks);
+				
+				// Calculate segment time based on adjusted chunk size
+				// Convert adjustedChunkSize (MB) to bytes, then to seconds based on file's bitrate
+				const fileSizeInBytes = fs.statSync(file).size;
+				const bitrate = (fileSizeInBytes * 8) / totalSeconds; // bits per second
+				const segmentTime = Math.ceil((adjustedChunkSize * 1024 * 1024 * 8) / bitrate);
 
-				console.log(`File duration: ${duration}, segment time: ${segmentTime} seconds`);
+				console.log(`File duration: ${duration}, segment time: ${segmentTime} seconds (based on ${adjustedChunkSize}MB chunks)`);
 				
 				// Use spawn for the chunking operation
 				const chunkFile = () => {

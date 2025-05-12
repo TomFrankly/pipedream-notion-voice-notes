@@ -132,14 +132,14 @@ export default {
             console.log(`Combining ${chunksArray.length} VTT/SRT chunks...`);
 
             try {
-                let combinedVTT = "WEBVTT\n\n";
-                let currentSegmentNumber = 1;
-                let lastEndTime = 0;
+                let combinedVTT = "";
+                let allSegments = [];
+
+                // Helper to detect timestamp lines
+                const isTimestampLine = (line) => /\d{2}:\d{2}:\d{2}[.,]\d{3}\s*--\>\s*\d{2}:\d{2}:\d{2}[.,]\d{3}/.test(line);
 
                 for (let i = 0; i < chunksArray.length; i++) {
                     const chunk = chunksArray[i];
-                    
-                    // Get content from either VTT or SRT format
                     let content = null;
                     if (chunk.vtt) {
                         content = chunk.vtt;
@@ -151,74 +151,75 @@ export default {
                             content = srtFormat.content;
                         }
                     }
-                    
                     if (!content) continue;
 
-                    // Split content into lines and process
+                    // Split into lines and preprocess
                     const lines = content.split('\n');
-                    let inMetadata = false;
+                    let inNoteOrMetadata = false;
+                    let foundFirstTimestamp = false;
                     let currentSegment = [];
-                    let timeOffset = i === 0 ? 0 : lastEndTime;
+                    let segments = [];
 
-                    for (let line of lines) {
-                        line = line.trim();
+                    for (let idx = 0; idx < lines.length; idx++) {
+                        let line = lines[idx].trim();
                         if (!line) continue;
 
-                        // Skip WEBVTT header and metadata
-                        if (line === 'WEBVTT' || line === 'SRT') {
-                            inMetadata = true;
-                            continue;
-                        }
-                        if (inMetadata) {
-                            // Skip metadata lines (they start with NOTE or contain timestamps)
-                            if (line.startsWith('NOTE') || line.includes('-->')) {
-                                inMetadata = false;
+                        // Skip WEBVTT or SRT header
+                        if (line === 'WEBVTT' || line === 'SRT') continue;
+
+                        // Skip NOTE and metadata until first timestamp
+                        if (!foundFirstTimestamp) {
+                            if (line.startsWith('NOTE')) {
+                                inNoteOrMetadata = true;
+                                continue;
+                            }
+                            if (inNoteOrMetadata) {
+                                // End NOTE block at first blank line or timestamp
+                                if (isTimestampLine(line)) {
+                                    inNoteOrMetadata = false;
+                                    foundFirstTimestamp = true;
+                                } else {
+                                    continue;
+                                }
+                            } else if (isTimestampLine(line)) {
+                                foundFirstTimestamp = true;
                             } else {
+                                // Skip all lines before first timestamp
                                 continue;
                             }
                         }
 
-                        // Check if this is a segment number line
-                        if (/^\d+$/.test(line)) {
+                        // Remove segment numbers (lines that are just a number)
+                        if (/^\d+$/.test(line)) continue;
+
+                        // Start of a new segment
+                        if (isTimestampLine(line)) {
+                            // Convert SRT-style commas to VTT-style periods for VTT output
+                            line = line.replace(/,/g, '.');
                             if (currentSegment.length > 0) {
-                                // Process previous segment
-                                const processedSegment = this.processVTTSegment(currentSegment, currentSegmentNumber, timeOffset);
-                                if (processedSegment) {
-                                    combinedVTT += processedSegment + '\n\n';
-                                    currentSegmentNumber++;
-                                }
+                                segments.push([...currentSegment]);
+                                currentSegment = [];
                             }
-                            currentSegment = [];
-                            continue;
                         }
-
-                        // Check if this is a timestamp line
-                        if (line.includes('-->')) {
-                            const [start, end] = line.split('-->').map(t => t.trim());
-                            // Convert SRT timestamp format (comma) to VTT format (dot) if needed
-                            const endTime = this.parseVTTTime(end.replace(',', '.'));
-                            if (endTime > lastEndTime) {
-                                lastEndTime = endTime;
-                            }
-                            currentSegment.push(line);
-                            continue;
-                        }
-
-                        // Clean up speaker labels and add text
-                        line = line.replace(/<v\s+Speaker\s+(\d+)>/g, 'Speaker $1: ').trim();
-                        if (line) {
-                            currentSegment.push(line);
-                        }
+                        // Fix speaker label: <v Speaker 0> -> Speaker 0: 
+                        line = line.replace(/^<v\s+Speaker\s+(\d+)>/gi, 'Speaker $1: ');
+                        currentSegment.push(line);
                     }
-
-                    // Process the last segment in the chunk
+                    // Push last segment
                     if (currentSegment.length > 0) {
-                        const processedSegment = this.processVTTSegment(currentSegment, currentSegmentNumber, timeOffset);
-                        if (processedSegment) {
-                            combinedVTT += processedSegment + '\n\n';
-                            currentSegmentNumber++;
-                        }
+                        segments.push([...currentSegment]);
                     }
+                    // Add to allSegments
+                    allSegments.push(...segments);
+                }
+
+                // Renumber and format all segments
+                let segmentNumber = 1;
+                for (const segment of allSegments) {
+                    if (segment.length === 0) continue;
+                    combinedVTT += `${segmentNumber}\n`;
+                    combinedVTT += segment.join('\n') + '\n\n';
+                    segmentNumber++;
                 }
 
                 return combinedVTT.trim();
@@ -292,6 +293,54 @@ export default {
             const milliseconds = Math.floor(ms % 1000);
 
             return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+        },
+
+        /**
+         * Splits a VTT string into batches of up to maxChars characters, ensuring the first batch includes the WEBVTT header if present
+         * @param {string} vttString - The full VTT string
+         * @param {number} maxChars - Maximum characters per batch (default 2000)
+         * @returns {Array<string>} Array of VTT batches
+         */
+        splitVTTIntoBatches(vttString, maxChars = 2000) {
+            const segments = vttString.split('\n\n');
+            let batches = [];
+            let currentBatch = [];
+            let currentLength = 0;
+
+            // Handle WEBVTT header
+            if (segments[0].trim().toUpperCase() === 'WEBVTT') {
+                currentBatch.push('WEBVTT');
+                currentLength += 'WEBVTT\n\n'.length;
+                segments.shift();
+            }
+
+            for (const segment of segments) {
+                // Handle oversized segment
+                if (segment.length + 2 > maxChars) {
+                    // Flush current batch if not empty
+                    if (currentBatch.length > 0) {
+                        batches.push(currentBatch.join('\n\n'));
+                        currentBatch = [];
+                        currentLength = 0;
+                    }
+                    // Truncate and add as its own batch
+                    let truncated = segment.slice(0, maxChars - 2) + '…'; // Add ellipsis to indicate truncation
+                    batches.push(truncated);
+                    continue;
+                }
+                // Normal batching logic
+                if (currentLength + segment.length + 2 > maxChars && currentBatch.length > 0) {
+                    batches.push(currentBatch.join('\n\n'));
+                    currentBatch = [];
+                    currentLength = 0;
+                }
+                currentBatch.push(segment);
+                currentLength += segment.length + 2;
+            }
+            if (currentBatch.length > 0) {
+                batches.push(currentBatch.join('\n\n'));
+            }
+            return batches;
         }
     }
 };

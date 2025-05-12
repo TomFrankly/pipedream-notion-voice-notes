@@ -1,20 +1,11 @@
+/**
+ * TO DO
+ * 
+ * [ ] - Remove Advance Options toggle (optional props are now less visually cluttered when hidden)
+ */
+
 // Text utils
-import natural from "natural"; // Sentence tokenization
-import { franc, francAll } from "franc"; // Language detection
-import { encode, decode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
-
-// Rate limiting and error handling
-import Bottleneck from "bottleneck"; // Concurrency handler
-import retry from "async-retry"; // Retry handler
-
-// Node.js utils
-import stream from "stream"; // Stream handling
-import { promisify } from "util"; // Promisify
-import fs from "fs"; // File system
-import got from "got"; // HTTP requests
-import { inspect } from "util"; // Object inspection
-import { join, extname } from "path"; // Path handling
-import { exec, spawn } from "child_process"; // Shell commands
+import { encode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
 
 // Project utils
 import fileSystem from "./helpers/file-system.mjs"; // File system methods
@@ -23,7 +14,6 @@ import transcribe from "./helpers/transcribe.mjs"; // Transcription methods
 import textProcessor from "./helpers/text-processor.mjs"; // Text processing methods
 import ffmpegHelper from "./helpers/ffmpeg.mjs"; // FFmpeg methods
 import llm from "./helpers/llm.mjs"; // LLM methods
-import prompts from "./helpers/prompts.mjs"; // Prompts
 
 const config = {
 	filePath: "",
@@ -36,9 +26,54 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.0.44",
+    version: "0.0.71",
     type: "action",
     props: {
+        instructions: {
+            type: "alert",
+            alertType: "info",
+            content: `# Setup Instructions
+
+## 1. Choose Your Services
+- Select a **Transcription Service** (required) - This will convert your audio to text
+- Select an **AI Summary Service** (optional) - This will analyze and summarize your transcript
+
+## 2. Configure API Keys
+- After selecting your services, you'll need to provide API keys for each service
+- For transcription, you'll need an API key from your chosen service (OpenAI, Deepgram, Google Gemini, Groq, or ElevenLabs)
+- For summarization, you'll need an API key from your chosen service (OpenAI, Anthropic, Google Gemini, or Groq)
+
+## 3. Select Models
+- Choose the specific model you want to use for transcription
+- If using AI summarization, choose the model for that as well
+
+## 4. Configure Summary Options (Optional)
+- If you selected an AI service, you can choose what kind of summary you want
+- Options include Summary, Main Points, Action Items, and more
+- You can select multiple options or none at all
+
+## 5. Advanced Options (Optional)
+- Enable Advanced Options to access additional settings like:
+  - Audio chunk size
+  - Downsampling
+  - Translation
+  - Summary density
+  - Model temperature
+
+## Usage
+1. Upload an audio file to your connected cloud storage (Dropbox, Google Drive, or OneDrive)
+2. The workflow will automatically:
+   - Download the file
+   - Transcribe it
+   - Generate a summary (if configured)
+   - Translate it (if configured)
+3. The results will be returned in a structured format that you can use in subsequent steps
+
+## Tips
+- For best results, use clear audio files under 700MB
+- If you're on Pipedream's free plan, consider using a service that can handle both transcription and summarization (Groq, Gemini, or OpenAI)
+- For longer files, you may need to adjust your workflow's timeout and RAM settings`
+        },
         steps: {
 			type: "object",
 			label: "Previous Step Data (Set by Default)",
@@ -48,7 +83,7 @@ export default {
 			type: "string",
 			label: "Transcription Service",
 			description:
-				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini](https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. Its Whisper models can return accurate timestamps. It can also be used for summarization.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for summarization, and the Gemini models may be more powerful than Groq's open-source models for summarization. It is NOT useful if you need accurate timestamps.\n\n - **ElevenLabs** is a good option for transcription.\n\n - **Deepgram** is extremely fast (on par or faster than Groq), but often fails to add punctuation.\n\n- **OpenAI** is the least recommended option. Its summarization models are good, but its transcription models are slow and often reject requests.`,
+				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini](https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It has a generous free tier, is very accurate, and is one of the fastest services. Its Whisper models can return accurate timestamps. On the pay-by-usage Dev Tier, its Whisper models are the fastest and least expensivein the industry. It can also be used for summarization.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for summarization, and the Gemini models may be more powerful than Groq's open-source models for summarization. It is NOT useful if you need accurate timestamps.\n\n - **ElevenLabs** is a good option for transcription.\n\n - **Deepgram** is extremely fast (on par or faster than Groq). It's more expensive, but supports diarization (speaker labels). Under this workflow's current architecture, you should choose Deepgram if you want caption-style timestamps with speaker labels.\n\n- **AssemblyAI** is another good transcription option comparable to Deepgram. Under this workflow's current architecture, you should choose AssemblyAI if you want larger timestamp segments for multi-speaker audio, rather than caption-style segments.\n\n- **OpenAI** is the least recommended option. Its summarization models are good, but its transcription models are slow and often reject requests.`,
 			options: [
 				{
 					label: "OpenAI (Whisper, ChatGPT)",
@@ -69,7 +104,11 @@ export default {
 				{
 					label: "ElevenLabs (Scribe)",
 					value: "elevenlabs",
-				}
+				},
+                {
+                    label: "AssemblyAI",
+                    value: "assemblyai",
+                }
 			],
             reloadProps: true,
 		},
@@ -192,7 +231,30 @@ export default {
                         description: "This is ElevenLabs' app property. After this loads, you should see ElevenLabs' model options.",
                         reloadProps: true
                     }
-                }
+                },
+                assemblyai: {
+                    name: "AssemblyAI",
+                    recommended: "best",
+                    models: ["best", "slam-1", "nano", "universal"],
+                    prop: "assemblyai",
+                    app: {
+                        type: "app",
+                        app: "assemblyai",
+                        description: "This is AssemblyAI's app property. After this loads, you should see AssemblyAI's model options.",
+                        reloadProps: true
+                    }
+                },
+                /*gladia: {
+                    name: "Gladia",
+                    recommended: "default",
+                    models: ["default"],
+                    prop: "gladia",
+                    app: {
+                        type: "app",
+                        app: "gladia",
+                        description: "This is Gladia's app property. After this loads, you should see Gladia's model options.",
+                        reloadProps: true
+                }*/
             },
             ai: {
                 openai: {
@@ -233,7 +295,7 @@ export default {
                 },
                 groqcloud: {
                     name: "Groq",
-                    recommended: "llama-3.1-8b-instant",
+                    recommended: "meta-llama/llama-4-scout-17b-16e-instruct",
                     models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct"],
                     prop: "groqcloud",
                     app: {
@@ -322,7 +384,7 @@ export default {
                 props.enable_downsampling = {
                     type: "boolean",
                     label: "Enable Audio Downsampling",
-                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to MP3 format (32kbps) before transcription. This can significantly reduce file size while maintaining quality, potentially avoiding the need for chunking.\n\n**Note:** This option may be useful for avoiding chunking of large audio files, which you may want to avoid if you're trying to generate timestamps. However, it may also increase the time each run takes, since the file won't be split into chunks that can be processed concurrently. If you run into timeout issues with this enabled, try disabling it or increasing your workflow's timeout limit.`,
+                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to MP3 format (32kbps) before transcription. This can significantly reduce file size while maintaining quality, potentially avoiding the need for chunking.\n\n**Note:** This option may be useful for avoiding chunking of large audio files, which you may want to avoid if you're trying to generate timestamps (although this script already does the math to create accurate timestamps when combining the chunks). However, it may also increase the time each run takes, since the file won't be split into chunks that can be processed concurrently. If you run into timeout issues with this enabled, try disabling it or increasing your workflow's timeout limit.\n\n**TL;DR:** You probably don't need this, but it's here if you want to use it.`,
                     default: false,
                     optional: true,
                 };
@@ -637,7 +699,8 @@ export default {
             summary_density: this.summary_density,
             verbosity: this.verbosity,
             ai_temperature: this.ai_temperature,
-            chunk_size: this.chunk_size
+            chunk_size: this.chunk_size,
+            enable_downsampling: this.enable_downsampling
         }
         console.dir(logSettings);
 
@@ -648,7 +711,7 @@ export default {
                     models: ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
                 },
                 deepgram: {
-                    models: ["nova-3", "nova-2-general", "nova-general"]
+                    models: ["nova-3", "nova-2", "nova-general"]
                 },
                 groqcloud: {
                     models: ["whisper-large-v3-turbo", "distil-whisper-large-v3-en", "whisper-large-v3"]
@@ -658,6 +721,9 @@ export default {
                 },
                 elevenlabs: {
                     models: ["scribe_v1"]
+                },
+                assemblyai: {
+                    models: ["best", "slam-1", "nano", "universal"]
                 }
             },
             ai: {
@@ -737,7 +803,9 @@ export default {
 
         const fileInfo = {};
 
-		fileInfo.log_settings = logSettings;
+        fileInfo.metadata = {};
+
+		fileInfo.metadata.log_settings = logSettings;
 
 		// Capture the setup stage's time taken in milliseconds
 		stageDurations.setup = Number(process.hrtime.bigint() - previousTime) / 1e6;
@@ -753,17 +821,17 @@ export default {
 
 		if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
-			fileInfo.cloud_app = "Google Drive";
+			fileInfo.metadata.cloud_app = "Google Drive";
 			fileInfo.file_name =
 				this.steps.google_drive_download.$return_value.name.replace(
 					/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
 					""
 				);
-			fileInfo.path = `/tmp/${fileInfo.file_name}`;
-			console.log(`File path of Google Drive file: ${fileInfo.path}`);
-			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
+			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
+			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webViewLink;
-			if (config.supportedMimes.includes(fileInfo.mime) === false) {
+			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
 						", "
@@ -772,16 +840,16 @@ export default {
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
-			fileInfo.cloud_app = "Google Drive";
+			fileInfo.metadata.cloud_app = "Google Drive";
 			fileInfo.file_name = this.steps.download_file.$return_value.name.replace(
 				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
 				""
 			);
-			fileInfo.path = `/tmp/${fileInfo.file_name}`;
-			console.log(`File path of Google Drive file: ${fileInfo.path}`);
-			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
+			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
+			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webViewLink;
-			if (config.supportedMimes.includes(fileInfo.mime) === false) {
+			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
 						", "
@@ -793,16 +861,16 @@ export default {
 			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.cloud_app = "OneDrive";
-			fileInfo.path = this.steps.ms_onedrive_download.$return_value.replace(
+			fileInfo.metadata.cloud_app = "OneDrive";
+			fileInfo.metadata.path = this.steps.ms_onedrive_download.$return_value.replace(
 				/[\?$#&\{\}\[\]<>\*!@:\+\\]/g,
 				""
 			);
-			fileInfo.file_name = fileInfo.path.replace(/^\/tmp\//, "");
-			console.log(`File path of MS OneDrive file: ${fileInfo.path}`);
-			fileInfo.mime = fileInfo.path.match(/\.\w+$/)[0];
+			fileInfo.file_name = fileInfo.metadata.path.replace(/^\/tmp\//, "");
+			console.log(`File path of MS OneDrive file: ${fileInfo.metadata.path}`);
+			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webUrl;
-			if (config.supportedMimes.includes(fileInfo.mime) === false) {
+			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
 				throw new Error(
 					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
 						", "
@@ -811,7 +879,7 @@ export default {
 			}
 		} else {
 			// Dropbox method
-			fileInfo.cloud_app = "Dropbox";
+			fileInfo.metadata.cloud_app = "Dropbox";
 			Object.assign(
 				fileInfo,
 				await this.downloadToTmp(
@@ -824,15 +892,15 @@ export default {
 			fileInfo.link = encodeURI(
 				"https://www.dropbox.com/home" + this.steps.trigger.event.path_lower
 			);
-			console.log(`File path of Dropbox file: ${fileInfo.path}`);
+			console.log(`File path of Dropbox file: ${fileInfo.metadata.path}`);
 		}
 
-		this.filePath = fileInfo.path;
+		this.filePath = fileInfo.metadata.path;
 		this.fileName = fileInfo.file_name;
 		this.fileLink = fileInfo.link;
 
-		fileInfo.duration = await this.getDuration(fileInfo.path);
-        fileInfo.duration_formatted = this.formatDuration(fileInfo.duration);
+		fileInfo.metadata.duration = await this.getDuration(fileInfo.metadata.path);
+        fileInfo.metadata.duration_formatted = this.formatDuration(fileInfo.metadata.duration);
 
 		// Capture the download stage's time taken in milliseconds
 		stageDurations.download =
@@ -852,10 +920,10 @@ export default {
         /* -- Transcription Stage -- */
 
         // Check if downsampling is enabled
-        let fileToProcess = fileInfo.path;
+        let fileToProcess = fileInfo.metadata.path;
         if (this.advanced_options && this.enable_downsampling) {
             console.log("Downsampling enabled. Processing audio file...");
-            const downsampledResult = await this.downsampleAudio({ file: fileInfo.path });
+            const downsampledResult = await this.downsampleAudio({ file: fileInfo.metadata.path });
             fileToProcess = downsampledResult.path;
             console.log(`Using downsampled file: ${fileToProcess}`);
             console.log(`Size reduction: ${downsampledResult.sizeReduction}%`);
@@ -866,8 +934,9 @@ export default {
 
         console.log(`Chunks created successfully. Transcribing chunks: ${chunkFiles.files}`);
 
+        fileInfo.chunks = {}
         // Transcribe the chunk(s)
-        fileInfo.transcript_chunks = await this.transcribeFiles({
+        fileInfo.chunks.transcript_responses = await this.transcribeFiles({
             files: chunkFiles.files,
             outputDir: chunkFiles.outputDir,
         })
@@ -895,12 +964,12 @@ export default {
 
         // Combine all transcript chunks into a single transcript
         console.log("Combining transcript chunks...");
-		fileInfo.full_transcript = await this.combineTranscriptChunks(fileInfo.transcript_chunks)
+		fileInfo.full_transcript = await this.combineTranscriptChunks(fileInfo.chunks.transcript_responses)
 
         // If transcript chunks have VTT files, combine them into a single VTT file
-        if (fileInfo.transcript_chunks.every(chunk => chunk.vtt)) {
+        if (fileInfo.chunks.transcript_responses.every(chunk => chunk.vtt)) {
             console.log("Combining VTT chunks...");
-            fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.transcript_chunks)
+            fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.chunks.transcript_responses)
         }
 
         // Capture the transcript combination stage's time taken in milliseconds
@@ -934,15 +1003,15 @@ export default {
             console.log(`Max tokens per summary chunk: ${maxTokens}`);
 
             // Find the longest period gap in the transcript
-            fileInfo.longest_gap = this.findLongestPeriodGap(
+            fileInfo.metadata.longest_gap = this.findLongestPeriodGap(
                 fileInfo.full_transcript,
                 maxTokens
             );
             console.log(
-                `Longest period gap info: ${JSON.stringify(fileInfo.longest_gap, null, 2)}`
+                `Longest period gap info: ${JSON.stringify(fileInfo.metadata.longest_gap, null, 2)}`
             );
 
-            if (fileInfo.longest_gap.encodedGapLength > maxTokens) {
+            if (fileInfo.metadata.longest_gap.encodedGapLength > maxTokens) {
                 console.log(
                     `Longest sentence in the transcript exceeds the max per-chunk token length of ${maxTokens}. Transcript chunks will be split mid-sentence, potentially resulting in lower-quality summaries.`
                 );
@@ -955,10 +1024,10 @@ export default {
             );
 
             // Split the transcript into chunks of a specified maximum number of tokens
-            fileInfo.summary_chunks = this.splitTranscript(
+            fileInfo.chunks.summary_chunks = this.splitTranscript(
                 encodedTranscript,
                 maxTokens,
-                fileInfo.longest_gap
+                fileInfo.metadata.longest_gap
             );
 
             // If no summary options are selected, use the first chunk as the title
@@ -966,8 +1035,8 @@ export default {
                 console.log("No summary options selected. Using the first chunk as the title.");
 
                 
-                const titleArr = [fileInfo.summary_chunks[0]];
-                fileInfo.summary = await this.sendToChat({
+                const titleArr = [fileInfo.chunks.summary_chunks[0]];
+                fileInfo.chunks.summary_responses = await this.sendToChat({
                     service: this.ai_service,
                     model: this.ai_model,
                     stringsArray: titleArr,
@@ -977,22 +1046,31 @@ export default {
                 console.log(`Summary options: ${this.summary_options}`);
                 
                 // If summary options are selected, use the selected options
-                fileInfo.summary = await this.sendToChat({
+                fileInfo.chunks.summary_responses = await this.sendToChat({
                     service: this.ai_service,
                     model: this.ai_model,
-                    stringsArray: fileInfo.summary_chunks,
+                    stringsArray: fileInfo.chunks.summary_chunks,
                 });
             }
 
             console.log(`Summary array from ${this.ai_service} (${this.ai_model}):`);
-            console.dir(fileInfo.summary, { depth: null });
-            fileInfo.formatted_chat = await this.formatChat(fileInfo.summary);
+            console.dir(fileInfo.chunks.summary_responses, { depth: null });
+            fileInfo.metadata.formatted_chat = await this.formatChat(fileInfo.chunks.summary_responses);
 
-            fileInfo.paragraphs = {
+            fileInfo.metadata.paragraphs = {
                 transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
                 ...(this.summary_options.includes("Summary") && {
-                    summary: this.makeParagraphs(fileInfo.formatted_chat.summary, 1200),
+                    summary: this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200),
                 }),
+                ...(fileInfo.full_vtt && fileInfo.full_vtt.length > 0 && {
+                    // Split the VTT string into an array of segments, removing all leading blank lines from each segment
+                    // vtt: this.splitVTTIntoBatches(fileInfo.full_vtt, 2000), 
+                    vtt: fileInfo.full_vtt.split("\n\n").map(segment => {
+                        const lines = segment.split('\n');
+                        while (lines.length && lines[0].trim() === '') lines.shift();
+                        return lines.join('\n').trim();
+                    }).filter(segment => segment.length > 0),
+                })
             };
 
             // Capture the summary stage's time taken in milliseconds
@@ -1018,38 +1096,135 @@ export default {
                     `User specified ${this.translation_language} for the translation. Checking if the transcript language matches...`
                 );
     
+                // Detect the language of the transcript
                 const detectedLanguage = await this.detectLanguage(
                     this.ai_service,
                     this.chat_model,
-                    fileInfo.paragraphs.transcript[0]
+                    fileInfo.metadata.paragraphs.transcript[0]
                 );
+
+                console.log(`Detected language of the transcript is ${detectedLanguage.label} (ISO 639-1 code: ${detectedLanguage.value}).`);
     
-                fileInfo.language = {
-                    transcript: await this.formatDetectedLanguage(
-                        detectedLanguage.choices[0].message.content
-                    ),
-                    summary: this.translation_language
-                        ? lang.LANGUAGES.find((l) => l.value === this.translation_language)
-                        : "No language set.",
-                };
+                fileInfo.metadata.original_language = detectedLanguage;
+
+                // If the detected language is not the same as the translation language, translate the transcript
+                if (detectedLanguage.value !== this.translation_language) {
+                    console.log(`Translating the transcript to ${this.translation_language}...`);
+                    
+                    // Translate the transcript
+                    const translatedTranscript = await this.translateParagraphs({
+                        service: this.ai_service,
+                        model: this.chat_model,
+                        stringsArray: fileInfo.metadata.paragraphs.transcript,
+                        languageCode: this.translation_language
+                    });
+
+                    console.log(`Making paragraphs from translated transcript...`);
+
+                    fileInfo.metadata.paragraphs.translated_transcript = this.makeParagraphs(
+                        translatedTranscript.paragraphs.join(" "),
+                        1200
+                    );
+
+                    console.log(`Finished making paragraphs from translated transcript.`);
+
+                    // Capture the translation stage's time taken in milliseconds
+                    stageDurations.translation =
+                    Number(process.hrtime.bigint() - previousTime) / 1e6;
+                    console.log(
+                        `Translation stage duration: ${stageDurations.translation}ms (${
+                            stageDurations.translation / 1000
+                        } seconds)`
+                    );
+                    console.log(
+                        `Total duration so far: ${totalDuration(stageDurations)}ms (${
+                            totalDuration(stageDurations) / 1000
+                        } seconds)`
+                    );
+                    previousTime = process.hrtime.bigint();
+                }
+
             }
 
         }
 
+        // Create a final object that combines the paragraphs from the transcript, summary, VTT, translated transcript, and all summary details (if any)
+        fileInfo.final_results = {}
+
+        // If summary paragraphs exist, add them to the final results
+        if (fileInfo.metadata.paragraphs.summary) {
+            fileInfo.final_results.summary = fileInfo.metadata.paragraphs.summary;
+        }
+
+        // If transcript was translated, add the translated transcript as "transctipt" and the original-language version as "original_language_transcript. Otherwise, add original language transcript as "transcript"
+        if (fileInfo.metadata.paragraphs.translated_transcript) {
+            fileInfo.final_results.transcript = fileInfo.metadata.paragraphs.translated_transcript;
+            fileInfo.final_results.original_language_transcript = fileInfo.metadata.paragraphs.transcript;
+        } else {
+            fileInfo.final_results.transcript = fileInfo.metadata.paragraphs.transcript;
+        }
+
+        // If VTT paragraphs exist, add them to the final results
+        if (fileInfo.metadata.paragraphs.vtt) {
+            fileInfo.final_results.vtt = fileInfo.metadata.paragraphs.vtt;
+        }
+
+        // Add all keys from the formatted_chat object to the final results, except for "summary", "title", and "tokens"
+        Object.keys(fileInfo.metadata.formatted_chat).forEach(key => {
+            if (key !== "summary" && key !== "title" && key !== "tokens") {
+                fileInfo.final_results[key] = fileInfo.metadata.formatted_chat[key];
+            }
+        });
+
+        // Add a property values object, which will hold data users will likely use for database properties
+        fileInfo.property_values = {}
+
+        // Add the filename to the titles object
+        fileInfo.property_values.filename = this.fileName;
+
+        // If the formatted_chat object has an AI-generated title, add it to the titles object
+        if (fileInfo.metadata.formatted_chat.title) {
+            fileInfo.property_values.ai_title = fileInfo.metadata.formatted_chat.title;
+        }
+
+        // Add the duration to to the titles 
+        fileInfo.property_values.duration = fileInfo.metadata.duration;
+        fileInfo.property_values.duration_formatted = fileInfo.metadata.duration_formatted;
+
+        // Create a true final return object
+        const finalReturn = {}
+        finalReturn.property_values = fileInfo.property_values;
+        finalReturn.property_values.file_link = fileInfo.link;
+
+        // Create finalReturn.page_content from fileInfo.final_results, but with any keys removed that have empty arrays as values
+        finalReturn.page_content = Object.fromEntries(
+            Object.entries(fileInfo.final_results).filter(([key, value]) => value.length > 0)
+        );
+
+        finalReturn.other_data = {
+            file_name: fileInfo.file_name,
+            full_transcript: fileInfo.full_transcript,
+            ...(fileInfo.full_vtt && { full_vtt: fileInfo.full_vtt }),
+            chunks: fileInfo.chunks,
+            metadata: fileInfo.metadata,
+        }
+        
         // Add total duration to stageDurations
         stageDurations.total = totalDuration(stageDurations);
-        fileInfo.performance_metrics = stageDurations;
+        fileInfo.metadata.performance_metrics = stageDurations;
         // Create a formatted performance log that expresses the performance values as strings with ms and second labels
-        fileInfo.performance_formatted = Object.fromEntries(
-            Object.entries(fileInfo.performance_metrics).map(([stageName, stageDuration]) => [
+        fileInfo.metadata.performance_formatted = Object.fromEntries(
+            Object.entries(fileInfo.metadata.performance_metrics).map(([stageName, stageDuration]) => [
                 stageName,
                 stageDuration > 1000
                     ? `${(stageDuration / 1000).toFixed(2)} seconds`
                     : `${stageDuration.toFixed(2)}ms`,
             ])
         );
+
+        console.log(`Finished transcribing and summarizing the audio file. Total duration: ${fileInfo.metadata.performance_formatted.total}. Note that this duration may be a couple seconds off from Pipedream's internal timer (see Details tab → Duration), which has a higher-level view of the workflow's runtime.`);
         
-        return fileInfo;
+        return finalReturn;
 
     }
 };
