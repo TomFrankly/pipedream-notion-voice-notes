@@ -8,7 +8,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.14",
+    version: "0.0.21",
     props: {
         steps: {
 			type: "object",
@@ -289,17 +289,17 @@ export default {
         return props;
     },
     methods: {
-        compressTimestamps(vttArray) {
+        createCompressedTranscript(textArray) {
             const compressedArray = [];
             let i = 0;
-            while (i < vttArray.length) {
+            while (i < textArray.length) {
                 const currentChunk = [];
-                for (let j = 0; j < 9 && i < vttArray.length; j++) {
+                for (let j = 0; j < 4 && i < textArray.length; j++) {
                     let currentString = '';
                     let first = true;
-                    while (i < vttArray.length) {
-                        const nextPart = vttArray[i] + '\n\n';
-                        if ((currentString.length + nextPart.length) > 2000 && !first) {
+                    while (i < textArray.length) {
+                        const nextPart = textArray[i] + '\n\n';
+                        if ((currentString.length + nextPart.length) > 1000 && !first) {
                             break;
                         }
                         currentString += nextPart;
@@ -309,8 +309,8 @@ export default {
                     if (currentString.length > 0) {
                         currentChunk.push(currentString);
                     } else {
-                        // If a single vttArray[i] is longer than 2000, force add it and move on
-                        currentChunk.push(vttArray[i] + '\n\n');
+                        // If a single textArray[i] is longer than 2000, force add it and move on
+                        currentChunk.push(textArray[i] + '\n\n');
                         i++;
                     }
                 }
@@ -467,7 +467,7 @@ export default {
             const uncompressedBlockCount = notionData.page_content.timestamped_transcript.length;
 
             // Compress the timestamped transcript
-            notionData.page_content.timestamped_transcript = this.compressTimestamps(notionData.page_content.timestamped_transcript);
+            notionData.page_content.timestamped_transcript = this.createCompressedTranscript(notionData.page_content.timestamped_transcript);
 
             const compressedBlockCount = notionData.page_content.timestamped_transcript.length;
             console.log(`Compressed ${uncompressedBlockCount} blocks in the Timestamped Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`)
@@ -487,7 +487,7 @@ export default {
                 const uncompressedBlockCount = notionData.page_content.transcript.length;
 
                 // Compress the transcript
-                notionData.page_content.transcript = this.compressTimestamps(notionData.page_content.transcript);
+                notionData.page_content.transcript = this.createCompressedTranscript(notionData.page_content.transcript);
 
                 const compressedBlockCount = notionData.page_content.transcript.length;
                 console.log(`Compressed ${uncompressedBlockCount} blocks in the Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`)
@@ -499,7 +499,7 @@ export default {
                 const uncompressedBlockCount = notionData.page_content.original_language_transcript.length;
 
                 // Compress the original language transcript
-                notionData.page_content.original_language_transcript = this.compressTimestamps(notionData.page_content.original_language_transcript);
+                notionData.page_content.original_language_transcript = this.createCompressedTranscript(notionData.page_content.original_language_transcript);
 
                 const compressedBlockCount = notionData.page_content.original_language_transcript.length;
                 console.log(`Compressed ${uncompressedBlockCount} blocks in the Original-Language Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`)
@@ -540,6 +540,11 @@ export default {
         // Build the page object
         page = page.build();
 
+        // Log the size of page.additionalBlocks in kb
+        const additionalBlocksSize = JSON.stringify(page.additionalBlocks).length / 1024;
+        console.log(`Size of page.additionalBlocks: ${additionalBlocksSize.toFixed(2)} KB`);
+
+        
         // Log the page object
         console.log(`Constructed page object:`)
         console.dir(page, { depth: null });
@@ -549,7 +554,7 @@ export default {
             auth: this.notion.$auth.oauth_access_token,
         });
 
-        return;
+        return page;
 
         // Create the page
         const response = await createPage({
