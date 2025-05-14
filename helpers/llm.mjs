@@ -87,46 +87,77 @@ export default {
 
                     let response;
 
-                    switch (service.toLowerCase()) {
-                        case "openai":
-                            response = await this.requestOpenAI({
-                                model,
-                                prompt,
-                                systemMessage,
-                                temperature
-                            });
-                            break;
-                        case "groqcloud":
-                            response = await this.requestGroq({
-                                model,
-                                prompt,
-                                systemMessage,
-                                temperature
-                            });
-                            break;
-                        case "anthropic":
-                            response = await this.requestAnthropic({
-                                model,
-                                prompt,
-                                systemMessage,
-                                temperature
-                            });
-                            break;
-                        case "google_gemini":
-                            response = await this.requestGoogle({
-                                model,
-                                prompt,
-                                systemMessage,
-                                temperature
-                            });
-                            break;
-                        default:
-                            throw new Error(`Unsupported LLM service: ${service}`);
-                    }
+                    try {
+                        switch (service.toLowerCase()) {
+                            case "openai":
+                                response = await this.requestOpenAI({
+                                    model,
+                                    prompt,
+                                    systemMessage,
+                                    temperature
+                                });
+                                break;
+                            case "groqcloud":
+                                response = await this.requestGroq({
+                                    model,
+                                    prompt,
+                                    systemMessage,
+                                    temperature
+                                });
+                                break;
+                            case "anthropic":
+                                response = await this.requestAnthropic({
+                                    model,
+                                    prompt,
+                                    systemMessage,
+                                    temperature
+                                });
+                                break;
+                            case "google_gemini":
+                                response = await this.requestGoogle({
+                                    model,
+                                    prompt,
+                                    systemMessage,
+                                    temperature
+                                });
+                                break;
+                            default:
+                                throw new Error(`Unsupported LLM service: ${service}`);
+                        }
 
-                    //console.log(log_success);
-                    //console.dir(response);
-                    return this.unifyLLMResponse(response, service);
+                        return this.unifyLLMResponse(response, service);
+                    } catch (error) {
+                        // If this is the last retry attempt, create an error response instead of throwing
+                        if (attempt === 3) {
+                            console.error(`All retry attempts failed for ${service}. Creating error response.`);
+                            console.error(`Final error: ${error.message}`);
+                            
+                            // Create a response object that exactly matches the unified format
+                            return {
+                                id: `error-${Date.now()}`,
+                                model: model,
+                                provider: service,
+                                content: JSON.stringify({
+                                    title: "Error in processing",
+                                    summary: `An error occurred while processing this section: ${error.message}`,
+                                    main_points: [],
+                                    action_items: [],
+                                    stories: [],
+                                    references: [],
+                                    arguments: [],
+                                    follow_up: [],
+                                    related_topics: []
+                                }),
+                                usage: {
+                                    prompt_tokens: 0,
+                                    completion_tokens: 0,
+                                    total_tokens: 0
+                                }
+                            };
+                        }
+                        // For non-final attempts, throw the error to trigger retry
+                        throw error;
+                    }
                 },
                 {
                     retries: 3,
@@ -190,6 +221,7 @@ export default {
                             content: prompt
                         }
                     ],
+                    response_format: { type: "json_object" },
                     temperature: temperature / 10 ?? 0.2
                 });
 
@@ -252,6 +284,7 @@ export default {
                             content: prompt
                         }
                     ],
+                    response_format: { type: "json_object" },
                     temperature: temperature / 10 ?? 0.2
                 });
 
@@ -534,11 +567,11 @@ export default {
 			let round = 0;
 
 			while (currentIndex < encodedTranscript.length) {
-				console.log(`Round ${round++} of transcript splitting...`);
+				//console.log(`Round ${round++} of transcript splitting...`);
 
 				let endIndex = Math.min(currentIndex + maxTokens, encodedTranscript.length);
 
-				console.log(`Current endIndex: ${endIndex}`);
+				//console.log(`Current endIndex: ${endIndex}`);
 				const nonPeriodEndIndex = endIndex;
 
 				if (periodInfo.longestGap !== -1) {
@@ -579,11 +612,11 @@ export default {
 						endIndex++;
 					}
 
-					console.log(
-						`endIndex updated to ${endIndex} to keep sentences whole. Non-period endIndex was ${nonPeriodEndIndex}. Total added/removed tokens to account for this: ${
-							endIndex - nonPeriodEndIndex
-						}.`
-					);
+					//console.log(
+					//	`endIndex updated to ${endIndex} to keep sentences whole. Non-period endIndex was ${nonPeriodEndIndex}. Total added/removed tokens to account for this: ${
+					//		endIndex - nonPeriodEndIndex
+					//	}.`
+					//);
 				}
 
 				const chunk = encodedTranscript.slice(currentIndex, endIndex);
@@ -709,7 +742,19 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                 
                 const results = await limiter.schedule(() => {
                     const tasks = stringsArray.map((text, index) => {
-                        const systemMessage = `You are a translator. Your task is to translate the provided text into ${language.label} (ISO 639-1 code: ${language.value}). Do not add any preamble, introduction, or suffix to your translation. Do not explain your translation or add any notes. Simply output the translated text and nothing else. Maintain the original formatting, including line breaks and punctuation.`;
+                        const systemMessage = `You are a translator. Your task is to translate the provided text into ${language.label} (ISO 639-1 code: ${language.value}). 
+
+IMPORTANT: You must respond with a valid JSON object containing a single property:
+{
+    "translation": "your translated text here"
+}
+
+Rules:
+- Do not add any preamble, introduction, or suffix to your translation
+- Do not explain your translation or add any notes
+- Maintain the original formatting, including line breaks and punctuation
+- Return ONLY the JSON object, nothing else
+- The translation must be in ${language.label}`;
 
                         return this.llmRequest({
                             service,
@@ -726,7 +771,32 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                 });
 
                 const translationResult = {
-                    paragraphs: results.map(result => result.content),
+                    paragraphs: results.map(result => {
+                        try {
+                            const parsedContent = this.repairJSON(result.content);
+                            
+                            // If we have a translation property, use it
+                            if (parsedContent.translation) {
+                                return parsedContent.translation;
+                            }
+
+                            // If the content is already a string, use it
+                            if (typeof result.content === 'string') {
+                                return result.content;
+                            }
+
+                            // Last resort: stringify the content
+                            return JSON.stringify(result.content);
+                        } catch (error) {
+                            console.error(`Error parsing translation JSON: ${error.message}`);
+                            // If content is a string, use it directly
+                            if (typeof result.content === 'string') {
+                                return result.content;
+                            }
+                            // Otherwise stringify the content
+                            return JSON.stringify(result.content);
+                        }
+                    }),
                     language: language.label,
                     languageCode: language.value,
                     usage: {
@@ -870,7 +940,7 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                         
                         const prompt = this.createPrompt(text, date);
 
-                        const systemMessage = this.createSystemMessage(index, this.summary_options, this.summary_verbosity, this.translation_language);
+                        const systemMessage = this.createSystemMessage(index, this.summary_options, this.verbosity, this.translation_language);
                         
                         return this.llmRequest({
                             service: service,
@@ -989,8 +1059,8 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                 }
             );
 
-            console.log(`ChatResponse object after LLM items have been inserted:`);
-            console.dir(chatResponse, { depth: null });
+            console.log(`ChatResponse object preview after LLM items have been inserted:`);
+            console.log(JSON.stringify(chatResponse, null, 2).slice(0, 1000) + "...");
 
             function arraySum(arr) {
                 return arr.reduce((accumulator, currentValue) => accumulator + currentValue, 0);
@@ -1027,8 +1097,8 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                 tokens: arraySum(chatResponse.usageArray),
             };
 
-            console.log(`Final ChatResponse object:`);
-            console.dir(finalChatResponse, { depth: null });
+            console.log(`Final ChatResponse object preview:`);
+            console.log(JSON.stringify(finalChatResponse, null, 2).slice(0, 1000) + "...");
 
             return finalChatResponse;
         },

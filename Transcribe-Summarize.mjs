@@ -1,7 +1,11 @@
 /**
  * TO DO
  * 
- * [ ] - Remove Advance Options toggle (optional props are now less visually cluttered when hidden)
+ * [x] - Implement JSON mode where possible
+ * [ ] - Upgrade to JSON schema validation where possible
+ * [x] - On Summary failure, don't throw error that stops workflow. Instead, log error, continue, and craft error message in the summary object.
+ * [ ] - Add keyterms feature
+ * [ ] - Add transcription LLM cleanup feature (will use keyterms in system prompt)
  */
 
 // Text utils
@@ -26,53 +30,38 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.0.71",
+    version: "0.0.90",
     type: "action",
     props: {
         instructions: {
             type: "alert",
             alertType: "info",
-            content: `# Setup Instructions
+            content: `## Instructions
+            
+This is a super flexible transcription and AI summarization action built by your 'ole buddy Thomas Frank. It can transcribe nearly any audio file that you've downloaded to Pipedream temp storage, and gives you several transcription service options, including Groq (recommended), Deepgram, ElevenLabs, AssemblyAI, Google Gemini, and OpenAI.
 
-## 1. Choose Your Services
-- Select a **Transcription Service** (required) - This will convert your audio to text
-- Select an **AI Summary Service** (optional) - This will analyze and summarize your transcript
+If you like, it can also translate your transcript to another language, create a summary, and create lists of main points, action items, and more.
 
-## 2. Configure API Keys
-- After selecting your services, you'll need to provide API keys for each service
-- For transcription, you'll need an API key from your chosen service (OpenAI, Deepgram, Google Gemini, Groq, or ElevenLabs)
-- For summarization, you'll need an API key from your chosen service (OpenAI, Anthropic, Google Gemini, or Groq)
+**I highly recommend checking out the [full tutorial and FAQ](https://go.thomasjfrank.com/guide-notion-voice-notes/) to learn how to set this step up and to see everything it can do!**
 
-## 3. Select Models
-- Choose the specific model you want to use for transcription
-- If using AI summarization, choose the model for that as well
+## Basic Setup:
 
-## 4. Configure Summary Options (Optional)
-- If you selected an AI service, you can choose what kind of summary you want
-- Options include Summary, Main Points, Action Items, and more
-- You can select multiple options or none at all
+- Ensure **Previous Step Data** is set to **{{steps}}**
+- Select a **Transcription Service**
+- Select an **AI Summary Service** (required for translation and AI-generated note titles as well). You can select **None** if you only want transcription.
+- Provide API keys for the services you've selected
+- Choose models for the services you've selected
+- Choose your **Summary Options** (if desired)
 
-## 5. Advanced Options (Optional)
-- Enable Advanced Options to access additional settings like:
-  - Audio chunk size
-  - Downsampling
-  - Translation
-  - Summary density
-  - Model temperature
+This step works seamlessly with the **Send to Notion** step you likely see below it. However, you can also use the return value of this step in your own custom steps.
 
-## Usage
-1. Upload an audio file to your connected cloud storage (Dropbox, Google Drive, or OneDrive)
-2. The workflow will automatically:
-   - Download the file
-   - Transcribe it
-   - Generate a summary (if configured)
-   - Translate it (if configured)
-3. The results will be returned in a structured format that you can use in subsequent steps
+## Resources
 
-## Tips
-- For best results, use clear audio files under 700MB
-- If you're on Pipedream's free plan, consider using a service that can handle both transcription and summarization (Groq, Gemini, or OpenAI)
-- For longer files, you may need to adjust your workflow's timeout and RAM settings`
+- This workflow works with any Notion database, but it pairs well with [Ultimate Brain](https://thomasjfrank.com/brain/), my all-in-one productivity template.
+- Want to capture web clips, full articles, and highlights to Notion? Check out [Flylighter](https://flylighter.com/), my free web clipper for Notion.
+- Check out the [full tutorial and FAQ](https://go.thomasjfrank.com/guide-notion-voice-notes/) for this workflow
+- If you run into a bug or problem, please [open an issue](https://github.com/TomFrankly/pipedream-notion-voice-notes/issues) on GitHub.
+`
         },
         steps: {
 			type: "object",
@@ -83,32 +72,32 @@ export default {
 			type: "string",
 			label: "Transcription Service",
 			description:
-				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini](https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It has a generous free tier, is very accurate, and is one of the fastest services. Its Whisper models can return accurate timestamps. On the pay-by-usage Dev Tier, its Whisper models are the fastest and least expensivein the industry. It can also be used for summarization.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for summarization, and the Gemini models may be more powerful than Groq's open-source models for summarization. It is NOT useful if you need accurate timestamps.\n\n - **ElevenLabs** is a good option for transcription.\n\n - **Deepgram** is extremely fast (on par or faster than Groq). It's more expensive, but supports diarization (speaker labels). Under this workflow's current architecture, you should choose Deepgram if you want caption-style timestamps with speaker labels.\n\n- **AssemblyAI** is another good transcription option comparable to Deepgram. Under this workflow's current architecture, you should choose AssemblyAI if you want larger timestamp segments for multi-speaker audio, rather than caption-style segments.\n\n- **OpenAI** is the least recommended option. Its summarization models are good, but its transcription models are slow and often reject requests.`,
+				`Choose the service to use for transcription. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/guides/speech-to-text), [Deepgram](https://deepgram.com/product/speech-to-text), [Google Gemini](https://ai.google.dev/gemini-api/docs/audio), [Groq](https://console.groq.com/docs/speech-to-text), [AssemblyAI](https://www.assemblyai.com/products/speech-to-text), and [ElevenLabs](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It has a generous free tier, is very accurate, and is one of the fastest services. Its Whisper models can return accurate timestamps. On the pay-by-usage Dev Tier, its Whisper models are the fastest and least expensive in the industry. It can also be used for summarization.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for summarization, and the Gemini models may be more powerful than Groq's open-source models for summarization. It is NOT useful if you need accurate timestamps.\n\n - **ElevenLabs** is a good option for transcription.\n\n - **Deepgram** is extremely fast (on par or faster than Groq). It's more expensive, but supports diarization (speaker labels). Under this workflow's current architecture, you should choose Deepgram if you want caption-style timestamps with speaker labels.\n\n- **AssemblyAI** is another good transcription option comparable to Deepgram. Under this workflow's current architecture, you should choose AssemblyAI if you want larger timestamp segments for multi-speaker audio, rather than caption-style segments.\n\n- **OpenAI** is the least recommended option. Its summarization models are good, but its transcription models are slow and often reject requests.`,
 			options: [
-				{
-					label: "OpenAI (Whisper, ChatGPT)",
-					value: "openai",
-				},
-				{
-					label: "Deepgram (Nova)",	
-					value: "deepgram",
-				},
-				{
-					label: "Google (Gemini)",
-					value: "google_gemini",
-				},
 				{
 					label: "Groq (Whisper)",
 					value: "groqcloud",
 				},
-				{
-					label: "ElevenLabs (Scribe)",
-					value: "elevenlabs",
+                {
+					label: "Deepgram (Nova)",	
+					value: "deepgram",
 				},
                 {
                     label: "AssemblyAI",
                     value: "assemblyai",
-                }
+                },
+                {
+					label: "ElevenLabs (Scribe)",
+					value: "elevenlabs",
+				},
+                {
+					label: "OpenAI (Whisper, ChatGPT)",
+					value: "openai",
+				},
+				{
+					label: "Google (Gemini)",
+					value: "google_gemini",
+				}
 			],
             reloadProps: true,
 		},
@@ -116,7 +105,7 @@ export default {
 			type: "string",
 			label: "AI Summary Service (Also Used for Translation)",
 			description:
-				`Choose the service to use for the AI Summary. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat).\n\nYou can also select **None** – this will disable the summary step.\n\n*Note: If you select **None**, your only page title option will be the audio file name. Alternatively, you can select a service here if you want to generate a title, then uncheck all other summary options in the Summary Options property.*\n\n*Note: If you select **None**, you won't be able to translate the transcript into another language. If you want to translate the transcript, select a service here, then enable Advanced Options.*\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for transcription.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for transcription, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **OpenAI** is a good option for summarization, but its transcription models are slow and often reject requests.\n\n - **Anthropic** is a good option for summarization, but it does not offer transcription.`,
+				`Choose the service to use for AI summaries, translations, and AI-generated note titles. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat).\n\nYou can also select **None** – this will disable the summary step.\n\n*Note: If you select **None**, you won't be able to create an AI-generated note title. Alternatively, you can select a service here if you want to generate a title, then uncheck all other summary options in the Summary Options property.*\n\n*Note: If you select **None**, you won't be able to translate the transcript into another language. If you want to translate the transcript, select a service here, then enable Advanced Options.*\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for transcription.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for transcription, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **OpenAI** is a good option for summarization, but its transcription models are slow and often reject requests.\n\n - **Anthropic** is a good option for summarization, but it does not offer transcription.`,
 			options: [
 				{
 					label: "OpenAI",
@@ -144,30 +133,9 @@ export default {
     },
     async additionalProps(previousPropDefs) {
         console.log("=== additionalProps called ===");
-        console.log("this.transcription_service:", this.transcription_service);
-        console.log("this.ai_service:", this.ai_service);
-        console.log("previousPropDefs:", previousPropDefs);
         
         // Start with previous props
         let props = { ...previousPropDefs };
-        
-        // Log the current state of this
-        console.log("Current this context:", {
-            transcription_service: this.transcription_service,
-            ai_service: this.ai_service,
-            openaiValue: this.openai,
-            anthropicValue: this.anthropic,
-            deepgramValue: this.deepgram,
-            googleValue: this.google,
-            groqValue: this.groqcloud,
-            elevenlabsValue: this.elevenlabs,
-            openaiKeys: this.openai ? Object.keys(this.openai) : [],
-            anthropicKeys: this.anthropic ? Object.keys(this.anthropic) : [],
-            deepgramKeys: this.deepgram ? Object.keys(this.deepgram) : [],
-            googleKeys: this.google_gemini ? Object.keys(this.google_gemini) : [],
-            groqKeys: this.groqcloud ? Object.keys(this.groqcloud) : [],
-            elevenlabsKeys: this.elevenlabs ? Object.keys(this.elevenlabs) : [],
-        });
 
         // Manage service-specific properties based on user choices
         const serviceConfigs = {
@@ -384,7 +352,29 @@ export default {
                 props.enable_downsampling = {
                     type: "boolean",
                     label: "Enable Audio Downsampling",
-                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to MP3 format (32kbps) before transcription. This can significantly reduce file size while maintaining quality, potentially avoiding the need for chunking.\n\n**Note:** This option may be useful for avoiding chunking of large audio files, which you may want to avoid if you're trying to generate timestamps (although this script already does the math to create accurate timestamps when combining the chunks). However, it may also increase the time each run takes, since the file won't be split into chunks that can be processed concurrently. If you run into timeout issues with this enabled, try disabling it or increasing your workflow's timeout limit.\n\n**TL;DR:** You probably don't need this, but it's here if you want to use it.`,
+                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to M4A format (32kbps) before transcription. This can significantly reduce file size while maintaining quality, potentially avoiding the need for chunking.\n\n**Note:** This option may be useful for avoiding chunking of large audio files, which you may want to avoid if you're trying to generate timestamps (although this script already does the math to create accurate timestamps when combining the chunks). However, it may also increase the time each run takes, since the file won't be split into chunks that can be processed concurrently. If you run into timeout issues with this enabled, try disabling it or increasing your workflow's timeout limit.\n\n**TL;DR:** You probably don't need this, but it's here if you want to use it.`,
+                    default: false,
+                    optional: true,
+                };
+
+                props.path_to_file = {
+                    type: "string",
+                    label: "Path to File",
+                    description: `If you've downloaded your audio file to temporary storage and know the path to it, you can enter it here.\n\nPath should start with /tmp/ and include the file name. Example: /tmp/my-audio-file.mp3\n\nIf a previous step has provided the entire path to the file, you can reference that step's path here.\n\nIf a previous step has provided the file name, you can reference it like so: /tmp/{{file_name_variable}}\n\nIf you have a value here, it will override the default behavior of the workflow, which looks for specific 'download to temp' action steps for Google Drive, Microsoft OneDrive, and Dropbox. You can use this if you're downloading your file to temp storage using another type of action step.`,
+                    optional: true,
+                };
+
+                props.file_link = {
+                    type: "string",
+                    label: "File Link (Cloud Storage)",
+                    description: `If you've provided a custom Path to File, you can also provide the link to the file from your trigger step here. If you don't provide a value here, your final Notion page may not contain a link to the audio file.`,
+                    optional: true,
+                };
+
+                props.debug = {
+                    type: "boolean",
+                    label: "Enable Debug Mode",
+                    description: `When enabled, this will enable debug mode, which will cause this step to return the full JSON objects for each transcript and summary response. You'll find these in the other_data.chunks object. When disabled, that chunks object will be omitted from the step's output.`,
                     default: false,
                     optional: true,
                 };
@@ -393,7 +383,10 @@ export default {
                 // Hide all advanced options if advanced options are disabled
                 const advancedProps = [
                     'chunk_size',
-                    'enable_downsampling'
+                    'enable_downsampling',
+                    'path_to_file',
+                    'file_link',
+                    'debug'
                 ];
                 advancedProps.forEach(prop => {
                     if (props[prop]) {
@@ -552,7 +545,9 @@ export default {
                             'verbosity',
                             'ai_temperature',
                             'chunk_size',
-                            'enable_downsampling'
+                            'enable_downsampling',
+                            'path_to_file',
+                            'debug'
                         ];
                         advancedProps.forEach(prop => {
                             if (props[prop]) {
@@ -700,7 +695,10 @@ export default {
             verbosity: this.verbosity,
             ai_temperature: this.ai_temperature,
             chunk_size: this.chunk_size,
-            enable_downsampling: this.enable_downsampling
+            enable_downsampling: this.enable_downsampling,
+            path_to_file: this.path_to_file,
+            file_link: this.file_link,
+            debug: this.debug
         }
         console.dir(logSettings);
 
@@ -788,7 +786,7 @@ export default {
 
 		if (fileID === testEventId) {
 			throw new Error(
-				`Oops, this workflow won't work if you use the **Generate Test Event** button in the Trigger step. Please upload an audio file (mp3 or m4a) to Dropbox, select it from the Select Event dropdown *beneath* that button, then hit Test again on the Trigger step.`
+				`Oops, this workflow won't work if you use the **Generate Test Event** button in the Trigger step. Please upload an audio file to Dropbox, select it from the Select Event dropdown *beneath* that button, then hit Test again on the Trigger step.`
 			);
 		}
 
@@ -809,76 +807,113 @@ export default {
 
 		// Capture the setup stage's time taken in milliseconds
 		stageDurations.setup = Number(process.hrtime.bigint() - previousTime) / 1e6;
-		console.log(`Setup stage duration: ${stageDurations.setup}ms`);
+		console.log(`Setup stage duration: ${stageDurations.setup.toFixed(2)}ms (${
+			(stageDurations.setup / 1000).toFixed(3)
+		} seconds)`);
 		console.log(
-			`Total duration so far: ${totalDuration(stageDurations)}ms (${
-				totalDuration(stageDurations) / 1000
+			`Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+				(totalDuration(stageDurations) / 1000).toFixed(3)
 			} seconds)`
 		);
 		previousTime = process.hrtime.bigint();
 
         /* -- Download Stage -- */
 
-		if (this.steps.google_drive_download?.$return_value?.name) {
+        console.log("=== DOWNLOAD STAGE ===");
+
+        // Check that the path the file variable exists, is not empty, and conforms to /tmp/file_name.extension
+        if (this.path_to_file && this.path_to_file !== "") {
+            console.log("User has set a custom file path for the audio file. Using that path instead of the default behavior.");
+
+            // Check that the path is valid
+            if (!/^\/tmp\/.+/.test(this.path_to_file)) {
+                throw new Error("Invalid custom file path. You have a value set in the Path to File property; please ensure the path starts with /tmp/ and includes the file name. Example: /tmp/my-audio-file.mp3");
+            }
+
+            fileInfo.metadata.cloud_app = "Custom";
+            fileInfo.metadata.path = this.path_to_file;
+            fileInfo.file_name = fileInfo.metadata.path.replace(/^\/tmp\//, "")
+            console.log(`File path of custom file: ${fileInfo.metadata.path}`);
+            fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
+            
+            if (this.file_link && this.file_link !== "") {
+                console.log("User has provided a file link. Using that link instead of the default behavior.");
+                fileInfo.link = this.file_link;
+            } else {
+                console.log("No file link provided. Checking if the trigger step has any of the supported cloud storage link variables.");
+                if (this.steps.trigger.event.webViewLink) {
+                    console.log("Trigger step has a webViewLink. Using that link.");
+                    fileInfo.link = this.steps.trigger.event.webViewLink;
+                } else if (this.steps.trigger.event.webUrl) {
+                    console.log("Trigger step has a webUrl. Using that link.");
+                    fileInfo.link = this.steps.trigger.event.webUrl;
+                } else if (this.steps.trigger.event.link) {
+                    console.log("Trigger step has a link variable. Using that link.");
+                    fileInfo.link = this.steps.trigger.event.link;
+                } else {
+                    console.log("No file link provided. Using the default behavior.");
+                    fileInfo.link = this.steps.trigger.event.webViewLink;
+                }
+            }
+
+            if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+                console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
+            }
+        } else if (this.steps.google_drive_download?.$return_value?.name) {
 			// Google Drive method
+            console.log("User appears to be using the current Google Drive → google_drive_download action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
 			fileInfo.metadata.cloud_app = "Google Drive";
 			fileInfo.file_name =
-				this.steps.google_drive_download.$return_value.name.replace(
-					/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
-					""
-				);
+				this.steps.google_drive_download.$return_value.name
 			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
 			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
 			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webViewLink;
 			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
-				throw new Error(
-					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
-						", "
-					)}.`
-				);
+				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
 			}
 		} else if (this.steps.download_file?.$return_value?.name) {
 			// Google Drive fallback method
+            console.log("User appears to be using the legacy Google Drive → download_file fallback action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
 			fileInfo.metadata.cloud_app = "Google Drive";
-			fileInfo.file_name = this.steps.download_file.$return_value.name.replace(
-				/[\?$#&\{\}\[\]<>\*!@:\+\\\/]/g,
-				""
-			);
+			fileInfo.file_name = this.steps.download_file.$return_value.name
 			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
 			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
 			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webViewLink;
 			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
-				throw new Error(
-					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
-						", "
-					)}.`
-				);
+				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
 			}
 		} else if (
-			this.steps.ms_onedrive_download?.$return_value &&
-			/^\/tmp\/.+/.test(this.steps.ms_onedrive_download.$return_value)
+			this.steps.download_file?.$return_value &&
+			/^\/tmp\/.+/.test(this.steps.download_file.$return_value)
 		) {
 			// MS OneDrive method
-			fileInfo.metadata.cloud_app = "OneDrive";
-			fileInfo.metadata.path = this.steps.ms_onedrive_download.$return_value.replace(
-				/[\?$#&\{\}\[\]<>\*!@:\+\\]/g,
-				""
-			);
-			fileInfo.file_name = fileInfo.metadata.path.replace(/^\/tmp\//, "");
+            console.log("User appears to be using the current Microsoft OneDrive → ms_onedrive_download action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+			fileInfo.metadata.cloud_app = "Microsoft OneDrive";
+			fileInfo.metadata.path = this.steps.download_file.$return_value
+			fileInfo.file_name = fileInfo.metadata.path.replace(/^\/tmp\//, "")
 			console.log(`File path of MS OneDrive file: ${fileInfo.metadata.path}`);
 			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webUrl;
 			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
-				throw new Error(
-					`Unsupported file type. OpenAI's Whisper transcription service only supports the following file types: ${config.supportedMimes.join(
-						", "
-					)}.`
-				);
+				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
 			}
-		} else {
-			// Dropbox method
+		} else if (this.steps.download_file_to_tmp?.$return_value) {
+            // Official Dropbox method
+            console.log("User appears to be using the current Dropbox → download_file_to_tmp action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+			fileInfo.metadata.cloud_app = "Dropbox";
+			fileInfo.metadata.path = this.steps.download_file_to_tmp.$return_value.tmpPath
+            fileInfo.file_name = this.steps.download_file_to_tmp.$return_value.name
+            fileInfo.metadata.mime = this.steps.download_file_to_tmp.$return_value.name.match(/\.\w+$/)[0];
+            fileInfo.link = this.steps.trigger.event.link;
+
+            if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+                console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
+            }
+        } else {
+			// Legacy built-in Dropbox method. Deprecated in favor of using the official Dropbox → download_file_to_tmp action.
+            console.log("User appears to be using the legacy built-in Dropbox method. Attempting to set file name, path, mime type, and link in preparation for chunking.")
 			fileInfo.metadata.cloud_app = "Dropbox";
 			Object.assign(
 				fileInfo,
@@ -906,23 +941,32 @@ export default {
 		stageDurations.download =
 			Number(process.hrtime.bigint() - previousTime) / 1e6;
 		console.log(
-			`Download stage duration: ${stageDurations.download}ms (${
-				stageDurations.download / 1000
+			`Download stage duration: ${stageDurations.download.toFixed(2)}ms (${
+				(stageDurations.download / 1000).toFixed(3)
 			} seconds)`
 		);
 		console.log(
-			`Total duration so far: ${totalDuration(stageDurations)}ms (${
-				totalDuration(stageDurations) / 1000
+			`Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+				(totalDuration(stageDurations) / 1000).toFixed(3)
 			} seconds)`
 		);
 		previousTime = process.hrtime.bigint();
 
         /* -- Transcription Stage -- */
 
+        console.log("=== TRANSCRIPTION STAGE ===");
+
         // Check if downsampling is enabled
         let fileToProcess = fileInfo.metadata.path;
-        if (this.advanced_options && this.enable_downsampling) {
-            console.log("Downsampling enabled. Processing audio file...");
+
+        // If downsampling is enabled, downsample the file. Alternatively, if original file mime type is not supported, downsample the file.
+        if ((this.advanced_options && this.enable_downsampling) || !config.supportedMimes.includes(fileInfo.metadata.mime)) {
+            if (this.advanced_options && this.enable_downsampling) {
+                console.log("Downsampling enabled. Processing audio file...");
+            } else {
+                console.log("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
+            }
+
             const downsampledResult = await this.downsampleAudio({ file: fileInfo.metadata.path });
             fileToProcess = downsampledResult.path;
             console.log(`Using downsampled file: ${fileToProcess}`);
@@ -947,13 +991,13 @@ export default {
 		stageDurations.transcription =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
-            `Transcription stage duration: ${stageDurations.transcription}ms (${
-                stageDurations.transcription / 1000
+            `Transcription stage duration: ${stageDurations.transcription.toFixed(2)}ms (${
+                (stageDurations.transcription / 1000).toFixed(3)
             } seconds)`
         );
         console.log(
-            `Total duration so far: ${totalDuration(stageDurations)}ms (${
-                totalDuration(stageDurations) / 1000
+            `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                (totalDuration(stageDurations) / 1000).toFixed(3)
             } seconds)`
         );
         previousTime = process.hrtime.bigint();
@@ -972,15 +1016,31 @@ export default {
             fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.chunks.transcript_responses)
         }
 
+        // Make paragraphs from the transcript (and VTT if available)
+        fileInfo.metadata.paragraphs = {
+            transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
+            ...(fileInfo.full_vtt && fileInfo.full_vtt.length > 0 && {
+                // Split the VTT string into an array of segments, removing all leading blank lines from each segment
+                // vtt: this.splitVTTIntoBatches(fileInfo.full_vtt, 2000), 
+                vtt: fileInfo.full_vtt.split("\n\n").map(segment => {
+                    const lines = segment.split('\n');
+                    while (lines.length && lines[0].trim() === '') lines.shift();
+                    return lines.join('\n').trim();
+                }).filter(segment => segment.length > 0),
+            })
+        };
+
         // Capture the transcript combination stage's time taken in milliseconds
 		stageDurations.transcriptCombination =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
-            `Transcript combination stage duration: ${stageDurations.transcriptCombination}ms`
+            `Transcript combination stage duration: ${stageDurations.transcriptCombination.toFixed(2)}ms (${
+                (stageDurations.transcriptCombination / 1000).toFixed(3)
+            } seconds)`
         );
         console.log(
-            `Total duration so far: ${totalDuration(stageDurations)}ms (${
-                totalDuration(stageDurations) / 1000
+            `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                (totalDuration(stageDurations) / 1000).toFixed(3)
             } seconds)`
         );
         previousTime = process.hrtime.bigint();
@@ -1022,6 +1082,7 @@ export default {
             console.log(
                 `Full transcript is roughly ${encodedTranscript.length} tokens. This is a rough estimate, and the actual number of input tokens may vary based on the model used.`
             );
+            fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length
 
             // Split the transcript into chunks of a specified maximum number of tokens
             fileInfo.chunks.summary_chunks = this.splitTranscript(
@@ -1053,36 +1114,26 @@ export default {
                 });
             }
 
-            console.log(`Summary array from ${this.ai_service} (${this.ai_model}):`);
-            console.dir(fileInfo.chunks.summary_responses, { depth: null });
+            console.log(`Summary array preview from ${this.ai_service} (${this.ai_model}):`);
+            console.log(JSON.stringify(fileInfo.chunks.summary_responses, null, 2).slice(0, 1000) + "...");
+
             fileInfo.metadata.formatted_chat = await this.formatChat(fileInfo.chunks.summary_responses);
 
-            fileInfo.metadata.paragraphs = {
-                transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
-                ...(this.summary_options.includes("Summary") && {
-                    summary: this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200),
-                }),
-                ...(fileInfo.full_vtt && fileInfo.full_vtt.length > 0 && {
-                    // Split the VTT string into an array of segments, removing all leading blank lines from each segment
-                    // vtt: this.splitVTTIntoBatches(fileInfo.full_vtt, 2000), 
-                    vtt: fileInfo.full_vtt.split("\n\n").map(segment => {
-                        const lines = segment.split('\n');
-                        while (lines.length && lines[0].trim() === '') lines.shift();
-                        return lines.join('\n').trim();
-                    }).filter(segment => segment.length > 0),
-                })
-            };
+            // Make paragraphs from the summary
+            if (this.summary_options.includes("Summary")) {
+                fileInfo.metadata.paragraphs.summary = this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200);
+            }
 
             // Capture the summary stage's time taken in milliseconds
             stageDurations.summary = Number(process.hrtime.bigint() - previousTime) / 1e6;
             console.log(
-                `Summary stage duration: ${stageDurations.summary}ms (${
-                    stageDurations.summary / 1000
+                `Summary stage duration: ${stageDurations.summary.toFixed(2)}ms (${
+                    (stageDurations.summary / 1000).toFixed(3)
                 } seconds)`
             );
             console.log(
-                `Total duration so far: ${totalDuration(stageDurations)}ms (${
-                    totalDuration(stageDurations) / 1000
+                `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                    (totalDuration(stageDurations) / 1000).toFixed(3)
                 } seconds)`
             );
             previousTime = process.hrtime.bigint();
@@ -1091,6 +1142,8 @@ export default {
             if (this.translation_language && this.translation_language !== "") {
                 
                 /* === TRANSLATION STAGE === */
+
+                console.log("=== TRANSLATION STAGE ===");
                 
                 console.log(
                     `User specified ${this.translation_language} for the translation. Checking if the transcript language matches...`
@@ -1110,12 +1163,21 @@ export default {
                 // If the detected language is not the same as the translation language, translate the transcript
                 if (detectedLanguage.value !== this.translation_language) {
                     console.log(`Translating the transcript to ${this.translation_language}...`);
+
+                    // Group the transcript into array elements of up to 10 paragraphs each
+                    const transcriptParagraphs = fileInfo.metadata.paragraphs.transcript.map(paragraph => paragraph.trim()).filter(paragraph => paragraph.length > 0);
+                    const groupedTranscript = [];
+                    for (let i = 0; i < transcriptParagraphs.length; i += 10) {
+                        groupedTranscript.push(transcriptParagraphs.slice(i, i + 10).join(" "));
+                    }
+
+                    console.log(`Condensed ${transcriptParagraphs.length} paragraphs into ${groupedTranscript.length} chunks for translation. Translating...`);
                     
                     // Translate the transcript
                     const translatedTranscript = await this.translateParagraphs({
                         service: this.ai_service,
                         model: this.chat_model,
-                        stringsArray: fileInfo.metadata.paragraphs.transcript,
+                        stringsArray: groupedTranscript,
                         languageCode: this.translation_language
                     });
 
@@ -1132,13 +1194,13 @@ export default {
                     stageDurations.translation =
                     Number(process.hrtime.bigint() - previousTime) / 1e6;
                     console.log(
-                        `Translation stage duration: ${stageDurations.translation}ms (${
-                            stageDurations.translation / 1000
+                        `Translation stage duration: ${stageDurations.translation.toFixed(2)}ms (${
+                            (stageDurations.translation / 1000).toFixed(3)
                         } seconds)`
                     );
                     console.log(
-                        `Total duration so far: ${totalDuration(stageDurations)}ms (${
-                            totalDuration(stageDurations) / 1000
+                        `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                            (totalDuration(stageDurations) / 1000).toFixed(3)
                         } seconds)`
                     );
                     previousTime = process.hrtime.bigint();
@@ -1146,13 +1208,16 @@ export default {
 
             }
 
+        } else {
+            // Wait 100ms before proceeding to allow steps to finish
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         // Create a final object that combines the paragraphs from the transcript, summary, VTT, translated transcript, and all summary details (if any)
         fileInfo.final_results = {}
 
         // If summary paragraphs exist, add them to the final results
-        if (fileInfo.metadata.paragraphs.summary) {
+        if (fileInfo.metadata.paragraphs && fileInfo.metadata.paragraphs.summary) {
             fileInfo.final_results.summary = fileInfo.metadata.paragraphs.summary;
         }
 
@@ -1170,11 +1235,13 @@ export default {
         }
 
         // Add all keys from the formatted_chat object to the final results, except for "summary", "title", and "tokens"
-        Object.keys(fileInfo.metadata.formatted_chat).forEach(key => {
-            if (key !== "summary" && key !== "title" && key !== "tokens") {
-                fileInfo.final_results[key] = fileInfo.metadata.formatted_chat[key];
-            }
-        });
+        if (fileInfo.metadata.formatted_chat) {
+            Object.keys(fileInfo.metadata.formatted_chat).forEach(key => {
+                if (key !== "summary" && key !== "title" && key !== "tokens") {
+                    fileInfo.final_results[key] = fileInfo.metadata.formatted_chat[key];
+                }
+            });
+        }
 
         // Add a property values object, which will hold data users will likely use for database properties
         fileInfo.property_values = {}
@@ -1183,7 +1250,7 @@ export default {
         fileInfo.property_values.filename = this.fileName;
 
         // If the formatted_chat object has an AI-generated title, add it to the titles object
-        if (fileInfo.metadata.formatted_chat.title) {
+        if (fileInfo.metadata.formatted_chat && fileInfo.metadata.formatted_chat.title) {
             fileInfo.property_values.ai_title = fileInfo.metadata.formatted_chat.title;
         }
 
@@ -1205,7 +1272,7 @@ export default {
             file_name: fileInfo.file_name,
             full_transcript: fileInfo.full_transcript,
             ...(fileInfo.full_vtt && { full_vtt: fileInfo.full_vtt }),
-            chunks: fileInfo.chunks,
+            ...(this.debug && this.debug === true && { chunks: fileInfo.chunks }),
             metadata: fileInfo.metadata,
         }
         
@@ -1223,6 +1290,8 @@ export default {
         );
 
         console.log(`Finished transcribing and summarizing the audio file. Total duration: ${fileInfo.metadata.performance_formatted.total}. Note that this duration may be a couple seconds off from Pipedream's internal timer (see Details tab → Duration), which has a higher-level view of the workflow's runtime.`);
+
+        $.export("$summary", `Successfully processed ${fileInfo.file_name} in ${fileInfo.metadata.performance_formatted.total / 1000} seconds.`);
         
         return finalReturn;
 

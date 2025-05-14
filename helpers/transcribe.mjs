@@ -521,7 +521,7 @@ export default {
 
         async transcribeAssemblyAI({ model = "best", apiKey, readStream }) {
             try {
-                console.log("Starting AssemblyAI transcription request...");
+                console.log(`Starting AssemblyAI transcription request with model ${model}...`);
                 
                 // Initialize AssemblyAI client
                 const client = new AssemblyAI({
@@ -532,8 +532,6 @@ export default {
                 const transcriptionParams = {
                     audio: readStream,
                     speech_model: model,
-                    language_detection: true,
-                    language_confidence_threshold: 0.7,
                     speaker_labels: true,
                     format_text: true,
                     punctuate: true,
@@ -548,6 +546,21 @@ export default {
                     redact_pii: false,
                     multichannel: false
                 };
+
+                // Add keyterms if provided and model is "slam-1"
+                if (
+                    this.keyterms 
+                    && Array.isArray(this.keyterms) 
+                    && this.keyterms.length > 0 
+                    && this.keyterms.length < 1000 
+                    && this.keyterms.every((term) => typeof term === "string")
+                    && this.keyterms.every((term) => term.split(" ").length < 7)
+                    && model === "slam-1"
+                ) {
+                    // Add keyterms to transcription parameters
+                    console.log("Adding keyterms to transcription parameters...");
+                    transcriptionParams.keyterms_prompt = this.keyterms;
+                }
 
                 // Submit transcription request and wait for completion
                 const result = await client.transcripts.transcribe(transcriptionParams);
