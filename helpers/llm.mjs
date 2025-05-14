@@ -9,6 +9,7 @@ import OpenAI from "openai"; // OpenAI SDK
 import Groq from "groq-sdk"; // Groq SDK
 import { Anthropic } from '@anthropic-ai/sdk';
 import { GoogleGenAI } from "@google/genai";
+import Cerebras from '@cerebras/cerebras_cloud_sdk'; // Cerebras SDK
 
 // Import local files
 import prompts from "./prompts.mjs";
@@ -115,6 +116,14 @@ export default {
                                 break;
                             case "google_gemini":
                                 response = await this.requestGoogle({
+                                    model,
+                                    prompt,
+                                    systemMessage,
+                                    temperature
+                                });
+                                break;
+                            case "cerebras":
+                                response = await this.requestCerebras({
                                     model,
                                     prompt,
                                     systemMessage,
@@ -413,6 +422,69 @@ export default {
         },
 
         /**
+         * Makes a request to the Cerebras API using the specified parameters.
+         * This function handles the specific formatting and requirements for Cerebras's API.
+         * 
+         * @param {Object} params - The parameters object
+         * @param {string} params.model - The Cerebras model to use (defaults to 'llama3.1-8b')
+         * @param {string} params.prompt - The user prompt to send to the model
+         * @param {string} params.systemMessage - The system message/instruction for the model
+         * @param {number} params.temperature - Temperature setting (0-10, will be divided by 10)
+         * 
+         * @returns {Promise<Object>} A promise that resolves to the Cerebras API response containing:
+         *   @property {string} id - The response ID
+         *   @property {string} model - The model used
+         *   @property {Array<Object>} choices - Array of response choices
+         *     @property {Object} choices[].message - The message object
+         *       @property {string} choices[].message.content - The generated content
+         *   @property {Object} usage - Token usage statistics
+         *     @property {number} usage.prompt_tokens - Number of tokens used in prompt
+         *     @property {number} usage.completion_tokens - Number of tokens used in completion
+         *     @property {number} usage.total_tokens - Total tokens used
+         * 
+         * @throws {Error} If the API request fails or if the response is invalid
+         * 
+         * @example
+         * const response = await requestCerebras({
+         *   model: 'llama3.1-8b',
+         *   prompt: 'Translate this to French: Hello world',
+         *   systemMessage: 'You are a translator',
+         *   temperature: 2
+         * });
+         * 
+         * @note
+         * - Uses Cerebras's chat completions API
+         * - Automatically scales temperature (divides by 10)
+         * - Requires valid Cerebras API key in auth
+         * - Handles message formatting according to Cerebras's requirements
+         */
+        async requestCerebras({ model, prompt, systemMessage, temperature }) {
+            const cerebras = new Cerebras({ apiKey: this.cerebras.$auth.api_key });
+            
+            try {
+                const response = await cerebras.chat.completions.create({
+                    model: model ?? "llama3.1-8b",
+                    messages: [
+                        {
+                            role: "system",
+                            content: systemMessage
+                        },
+                        {
+                            role: "user",
+                            content: prompt
+                        }
+                    ],
+                    response_format: { type: "json_object" },
+                    temperature: temperature / 10 ?? 0.2
+                });
+
+                return response;
+            } catch (error) {
+                throw new Error(`Cerebras request error: ${error.message}`);
+            }
+        },
+
+        /**
          * Normalizes responses from different LLM providers into a unified format.
          * This function handles the conversion of provider-specific response structures
          * into a consistent format that can be used throughout the application.
@@ -515,6 +587,17 @@ export default {
                             prompt_tokens: response.usageMetadata?.promptTokenCount ?? 0,
                             completion_tokens: response.usageMetadata?.candidatesTokenCount ?? 0,
                             total_tokens: response.usageMetadata?.totalTokenCount ?? 0
+                        };
+                        break;
+
+                    case "cerebras":
+                        unifiedResponse.id = response.id;
+                        unifiedResponse.model = response.model;
+                        unifiedResponse.content = response.choices[0].message.content;
+                        unifiedResponse.usage = {
+                            prompt_tokens: response.usage?.prompt_tokens ?? 0,
+                            completion_tokens: response.usage?.completion_tokens ?? 0,
+                            total_tokens: response.usage?.total_tokens ?? 0
                         };
                         break;
 
@@ -666,9 +749,28 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                     log_failure: (attempt, error) => `Attempt ${attempt} for language detection failed with error: ${error.message}. Retrying...`
                 });
 
-                return this.repairJSON(response.content);
+                const result = this.repairJSON(response.content);
+
+                // Check if the response contains an error
+                if (result.error) {
+                    console.error(`Language detection failed: ${result.error_message}. Returning unknown language.`);
+                    return {
+                        label: "Unknown",
+                        value: "unknown",
+                        error: true,
+                        error_message: result.error_message
+                    };
+                }
+
+                return result;
             } catch (error) {
-                throw new Error(`Language detection failed with error: ${error.message}`);
+                console.error(`Language detection failed with error: ${error.message}. Returning unknown language.`);
+                return {
+                    label: "Unknown",
+                    value: "unknown",
+                    error: true,
+                    error_message: error.message
+                };
             }
         },
 
@@ -770,6 +872,33 @@ Rules:
                     return Promise.all(tasks);
                 });
 
+                // Check for error responses
+                const hasError = results.some(result => {
+                    try {
+                        const content = this.repairJSON(result.content);
+                        return content.title === "Error in processing";
+                    } catch (e) {
+                        return false;
+                    }
+                });
+
+                if (hasError) {
+                    console.error("Translation failed due to LLM errors. Returning error response.");
+                    return {
+                        paragraphs: stringsArray, // Return original text
+                        language: language.label,
+                        languageCode: language.value,
+                        usage: {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        },
+                        model: model,
+                        error: true,
+                        error_message: "Translation failed due to LLM errors. Original text preserved."
+                    };
+                }
+
                 const translationResult = {
                     paragraphs: results.map(result => {
                         try {
@@ -812,6 +941,150 @@ Rules:
             } catch (error) {
                 console.error(error);
                 throw new Error(`An error occurred while translating the transcript: ${error.message}`);
+            }
+        },
+
+        async cleanupParagraphs({
+            service,
+            model,
+            stringsArray,
+            temperature = 2,
+            keyterms = [],
+            log_action = (attempt, index) => `Attempt ${attempt}: Sending paragraph ${index} to ${service} for cleanup...`,
+            log_success = (index) => `Paragraph ${index} received successfully.`,
+            log_failure = (attempt, error, index) => `Attempt ${attempt} for cleanup of paragraph ${index} failed with error: ${error.message}. Retrying...`
+        }) {
+            try {
+                let maxConcurrent
+                if (this.ai_service === "openai") {
+                    maxConcurrent = 35;
+                } else if (this.ai_service === "anthropic") {
+                    maxConcurrent = 35;
+                } else if (this.ai_service === "google_gemini") {
+                    maxConcurrent = 15;
+                } else if (this.ai_service === "groqcloud") {
+                    maxConcurrent = 25;
+                }
+                
+                const limiter = new Bottleneck({
+                    maxConcurrent: maxConcurrent,
+                });
+
+                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for cleanup using ${model}...`);
+                
+                const results = await limiter.schedule(() => {
+                    const tasks = stringsArray.map((text, index) => {
+                        // Base system message for cleanup
+                        let systemMessage = `You are a transcript cleanup assistant. Your task is to clean up the provided text by:
+- Fixing any spelling errors
+- Correcting grammar and punctuation
+- Maintaining proper sentence structure
+- Preserving the original meaning and tone
+- Keeping any technical terms, names, or specialized vocabulary intact
+- Maintaining the original formatting, including line breaks and punctuation
+
+IMPORTANT: You must respond with a valid JSON object containing a single property:
+{
+    "cleaned_text": "your cleaned text here"
+}
+
+Rules:
+- Do not add any preamble, introduction, or suffix to your cleaned text
+- Do not explain your changes or add any notes
+- Return ONLY the JSON object, nothing else
+- Preserve the original meaning and intent of the text`;
+
+                        // If keyterms are provided, add them to the system message
+                        if (keyterms && keyterms.length > 0) {
+                            systemMessage += `\n\nIMPORTANT: For the following terms:
+${keyterms.map(term => `- ${term}`).join('\n')}
+
+Rules for key terms:
+1. If a term appears in the text exactly as written above, preserve it exactly as is
+2. If a term appears in the text with spelling errors, correct it to match the exact spelling above
+3. If a term appears in the text with different capitalization, correct it to match the exact spelling above
+4. If a term appears in the text with different spacing, correct it to match the exact spelling above`;
+                        }
+
+                        return this.llmRequest({
+                            service,
+                            model,
+                            prompt: text,
+                            systemMessage,
+                            temperature,
+                            log_action: (attempt) => log_action(attempt, index),
+                            log_success: log_success(index),
+                            log_failure: (attempt, error) => log_failure(attempt, error, index)
+                        });
+                    });
+                    return Promise.all(tasks);
+                });
+
+                // Check for error responses
+                const hasError = results.some(result => {
+                    try {
+                        const content = this.repairJSON(result.content);
+                        return content.title === "Error in processing";
+                    } catch (e) {
+                        return false;
+                    }
+                });
+
+                if (hasError) {
+                    console.error("Cleanup failed due to LLM errors. Returning error response.");
+                    return {
+                        paragraphs: stringsArray, // Return original text
+                        usage: {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        },
+                        model: model,
+                        error: true,
+                        error_message: "Cleanup failed due to LLM errors. Original text preserved."
+                    };
+                }
+
+                const cleanupResult = {
+                    paragraphs: results.map(result => {
+                        try {
+                            const parsedContent = this.repairJSON(result.content);
+                            
+                            // If we have a cleaned_text property, use it
+                            if (parsedContent.cleaned_text) {
+                                return parsedContent.cleaned_text;
+                            }
+
+                            // If the content is already a string, use it
+                            if (typeof result.content === 'string') {
+                                return result.content;
+                            }
+
+                            // Last resort: stringify the content
+                            return JSON.stringify(result.content);
+                        } catch (error) {
+                            console.error(`Error parsing cleanup JSON: ${error.message}`);
+                            // If content is a string, use it directly
+                            if (typeof result.content === 'string') {
+                                return result.content;
+                            }
+                            // Otherwise stringify the content
+                            return JSON.stringify(result.content);
+                        }
+                    }),
+                    usage: {
+                        prompt_tokens: results.reduce((total, item) => total + item.usage.prompt_tokens, 0),
+                        completion_tokens: results.reduce((total, item) => total + item.usage.completion_tokens, 0),
+                        total_tokens: results.reduce((total, item) => total + item.usage.total_tokens, 0)
+                    },
+                    model: results[0].model,
+                };
+
+                console.log(`Cleaned up ${stringsArray.length} paragraphs successfully.`);
+                return cleanupResult;
+            } catch (error) {
+                console.error(error);
+                throw new Error(`An error occurred while cleaning up the transcript: ${error.message}`);
             }
         },
 

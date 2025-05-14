@@ -4,8 +4,9 @@
  * [x] - Implement JSON mode where possible
  * [ ] - Upgrade to JSON schema validation where possible
  * [x] - On Summary failure, don't throw error that stops workflow. Instead, log error, continue, and craft error message in the summary object.
- * [ ] - Add keyterms feature
- * [ ] - Add transcription LLM cleanup feature (will use keyterms in system prompt)
+ * [x] - Add keyterms feature
+ * [x] - Add transcription LLM cleanup feature (will use keyterms in system prompt)
+ * [x] - Add Cerebras LLM option
  */
 
 // Text utils
@@ -30,7 +31,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.0.90",
+    version: "0.0.91",
     type: "action",
     props: {
         instructions: {
@@ -105,7 +106,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			type: "string",
 			label: "AI Summary Service (Also Used for Translation)",
 			description:
-				`Choose the service to use for AI summaries, translations, and AI-generated note titles. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), and [Groq](https://console.groq.com/docs/text-chat).\n\nYou can also select **None** – this will disable the summary step.\n\n*Note: If you select **None**, you won't be able to create an AI-generated note title. Alternatively, you can select a service here if you want to generate a title, then uncheck all other summary options in the Summary Options property.*\n\n*Note: If you select **None**, you won't be able to translate the transcript into another language. If you want to translate the transcript, select a service here, then enable Advanced Options.*\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for transcription.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for transcription, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **OpenAI** is a good option for summarization, but its transcription models are slow and often reject requests.\n\n - **Anthropic** is a good option for summarization, but it does not offer transcription.`,
+				`Choose the service to use for AI summaries, translations, and AI-generated note titles. Once you select a service, you'll need to provide an API key in the property that appears later in this step's setup.\n\nOptions include [OpenAI](https://platform.openai.com/docs/api-reference/chat), [Anthropic](https://docs.anthropic.com/en/api/messages), [Google Gemini](https://ai.google.dev/gemini-api/docs/text-generation), [Groq](https://console.groq.com/docs/text-chat), and [Cerebras](https://inference-docs.cerebras.ai/api-reference/chat-completions).\n\nYou can also select **None** – this will disable the summary step.\n\n*Note: If you select **None**, you won't be able to create an AI-generated note title. Alternatively, you can select a service here if you want to generate a title, then uncheck all other summary options in the Summary Options property.*\n\n*Note: If you select **None**, you won't be able to translate the transcript into another language. If you want to translate the transcript, select a service here, then enable Advanced Options.*\n\n**Recommendations:** If you're on Pipedream's free plan, you're likely limited to 3 total app connections. That means you'll want a service that can handle both transcription and summarization. **Groq, Gemini, and OpenAI** can all do this. Here some more detailed recommendations:\n\n- **Groq** is the best overall option for most people. It's free, very accurate, and is one of the fastest services. It can also be used for transcription.\n\n - **Google Gemini** is also extremely accurate and has a generous free tier. Like Groq, it can also be used for transcription, and the Gemini models may be more powerful than Groq's open-source models for summarization.\n\n - **OpenAI** is a good option for summarization, but its transcription models are slow and often reject requests.\n\n - **Anthropic** is a good option for summarization, but it does not offer transcription.\n\n - **Cerebras** is similar to Groq, offering open-source Meta Llama models. It is usually the fastest LLM option and has a free tier. It does not offer transcription models.`,
 			options: [
 				{
 					label: "OpenAI",
@@ -122,6 +123,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 				{
 					label: "Groq",
 					value: "groqcloud",
+				},
+				{
+					label: "Cerebras",
+					value: "cerebras",
 				},
 				{
 					label: "None (No Summary)",
@@ -272,6 +277,18 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         description: "This is Groq's app property. After this loads, you should see Groq's model options.",
                         reloadProps: true
                     }
+                },
+                cerebras: {
+                    name: "Cerebras",
+                    recommended: "llama-4-scout-17b-16e-instruct",
+                    models: ["llama-4-scout-17b-16e-instruct", "llama3.1-8b", "llama-3.3-70b"],
+                    prop: "cerebras",
+                    app: {
+                        type: "app",
+                        app: "cerebras",
+                        description: "This is Cerebras' app property. After this loads, you should see Cerebras' model options.",
+                        reloadProps: true
+                    }
                 }
             }
         };
@@ -396,6 +413,26 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 });
             }
 
+            // Add keyterms
+            if (
+                this.advanced_options === true && (
+                    this.transcription_model === "slam-1" ||
+                    this.ai_cleanup === true
+                )
+            ) {
+                props.keyterms = {
+                    type: "string[]",
+                    label: "Key Terms",
+                    description: `Enter an array of key terms that the transcription model may need help with.\n\nIf you're using **AssemblyAI** as your transcription service with the **slam-1** model and an English-language audio file, these terms [will be included in the key_terms parameter of the transcription request](https://www.assemblyai.com/docs/speech-to-text/pre-recorded-audio/improving-transcript-accuracy). No other transcription services or models currently support this feature within this workflow.\n\nIf you've enabled **AI Cleanup**, these key terms will be included in the system prompt for the LLM that cleans up the transcript.`,
+                    optional: true,
+                };
+            } else {
+                if (props.keyterms) {
+                    props.keyterms.hidden = true;
+                    props.keyterms.disabled = true;
+                }
+            }
+
             // Handle AI service
             if (selectedAiService && selectedAiService !== 'none') {
                 const config = serviceConfigs.ai[selectedAiService];
@@ -441,9 +478,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
                     // Add advanced options if enabled
                     if (this.advanced_options === true) {
-
+                        
                         // Whisper-specific options
                         if (this.transcription_model?.toLowerCase().includes('whisper') || this.transcription_model?.toLowerCase().includes('gpt-4o-transcribe') || this.transcription_model?.toLowerCase().includes('gpt-4o-mini-transcribe') || this.transcription_model?.toLowerCase().includes('gemini')) {
+                            
                             props.whisper_prompt = {
                                 type: "string",
                                 label: "Transcription Prompt (Optional)",
@@ -476,13 +514,21 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.translation_language = {
                                 type: "string",
                                 label: "Translation Language",
-                                description: `If you set a language here, your transcript and chosen summary options will translated into that language (if it differs from the language of the transcript).`,
+                                description: `If you set a language here, your transcript and chosen summary options will translated into that language (if it differs from the language of the transcript).\n\n**Note:** This feature uses your chosen **AI Model** to translate the transcript once the transcription step is complete. It will increase the run time (and potentially the cost) of the workflow.`,
                                 optional: true,
                                 options: lang.LANGUAGES.map((lang) => ({
                                     label: lang.label,
                                     value: lang.value,
                                 })),
                                 reloadProps: true,
+                            };
+
+                            props.ai_cleanup = {
+                                type: "boolean",
+                                label: "Enable AI Cleanup",
+                                description: `Set this feature to true to enable AI cleanup of the transcript. This will send each chunk of your transcript to your chosen **AI Model** in order to clean it up. If you've provided an array of terms in the **Key Terms** field, these terms will be included in the system prompt for the LLM that cleans up the transcript.\n\n**Note:** This feature will increase the run time (and potentially the cost) of the workflow. It works identically to the translation feature.`,
+                                default: false,
+                                optional: true,
                             };
                             
                             props.summary_density = {
@@ -520,6 +566,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 props.translation_language.disabled = true;
                             }
 
+                            if (props.ai_cleanup) {
+                                props.ai_cleanup.hidden = true;
+                                props.ai_cleanup.disabled = true;
+                            }
+
                             if (props.summary_density) {
                                 props.summary_density.hidden = true;
                                 props.summary_density.disabled = true;
@@ -541,6 +592,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             'whisper_prompt',
                             'whisper_temperature',
                             'translation_language',
+                            'ai_cleanup',
                             'summary_density',
                             'verbosity',
                             'ai_temperature',
@@ -660,6 +712,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			download: 0,
 			transcription: 0,
 			transcriptCombination: 0,
+            cleanup: 0,
             translation: 0,
 			summary: 0,
             total: 0
@@ -683,12 +736,16 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             hasDeepgram: this.deepgram !== undefined,
             hasGoogle: this.google_gemini !== undefined,
             hasGroq: this.groqcloud !== undefined,
+            hasCerebras: this.cerebras !== undefined,
             hasElevenLabs: this.elevenlabs !== undefined,
+            hasAssemblyAI: this.assemblyai !== undefined,
             transcription_model: this.transcription_model,
             ai_model: this.ai_model,
             summary_options: this.summary_options,
             advanced_options: this.advanced_options,
             translation_language: this.translation_language,
+            ai_cleanup: this.ai_cleanup,
+            keyterms: this.keyterms,
             whisper_prompt: this.whisper_prompt,
             whisper_temperature: this.whisper_temperature,
             summary_density: this.summary_density,
@@ -736,6 +793,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 },
                 groqcloud: {
                     models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct"]
+                },
+                cerebras: {
+                    models: ["llama-4-scout-17b-16e-instruct", "llama3.1-8b", "llama-3.3-70b"]
                 }
             }
         };
@@ -1045,6 +1105,63 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         );
         previousTime = process.hrtime.bigint();
 
+        // If AI Cleanup is enabled, clean the transcript
+        if (this.ai_cleanup === true) {
+            /* === AI CLEANUP STAGE === */
+
+            console.log("=== AI CLEANUP STAGE ===");
+
+            console.log("Cleaning up transcript with AI...");
+
+            // Group the transcript into array elements of up to 10 paragraphs each
+            const transcriptParagraphs = fileInfo.metadata.paragraphs.transcript.map(paragraph => paragraph.trim()).filter(paragraph => paragraph.length > 0);
+            const groupedTranscript = [];
+            for (let i = 0; i < transcriptParagraphs.length; i += 10) {
+                groupedTranscript.push(transcriptParagraphs.slice(i, i + 10).join(" "));
+            }
+
+            console.log(`Condensed ${transcriptParagraphs.length} paragraphs into ${groupedTranscript.length} chunks for cleanup. Processing...`);
+            
+            // Clean up the transcript using our new cleanupParagraphs function
+            const cleanedTranscript = await this.cleanupParagraphs({
+                service: this.ai_service,
+                model: this.ai_model,
+                stringsArray: groupedTranscript,
+                ...(this.keyterms && this.keyterms.length > 0 && { keyterms: this.keyterms })
+            });
+
+            // Check if cleanup failed
+            if (cleanedTranscript.error) {
+                console.error(`Cleanup failed: ${cleanedTranscript.error_message}. Preserving original transcript.`);
+            } else {
+                console.log(`Making paragraphs from cleaned transcript...`);
+
+                // Update both the paragraphs and full transcript with cleaned version
+                fileInfo.metadata.paragraphs.transcript = this.makeParagraphs(
+                    cleanedTranscript.paragraphs.join(" "),
+                    1200
+                );
+                fileInfo.full_transcript = cleanedTranscript.paragraphs.join(" ");
+            }
+
+            console.log(`Finished cleaning transcript.`);
+
+            // Capture the cleanup stage's time taken in milliseconds
+            stageDurations.cleanup =
+            Number(process.hrtime.bigint() - previousTime) / 1e6;
+            console.log(
+                `Cleanup stage duration: ${stageDurations.cleanup.toFixed(2)}ms (${
+                    (stageDurations.cleanup / 1000).toFixed(3)
+                } seconds)`
+            );
+            console.log(
+                `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                    (totalDuration(stageDurations) / 1000).toFixed(3)
+                } seconds)`
+            );
+            previousTime = process.hrtime.bigint();
+        }
+
         // If an AI service is selected, proceed to summarization (and translation if selected)
 
         if (this.ai_service && this.ai_service !== "none") {
@@ -1156,12 +1273,17 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     fileInfo.metadata.paragraphs.transcript[0]
                 );
 
-                console.log(`Detected language of the transcript is ${detectedLanguage.label} (ISO 639-1 code: ${detectedLanguage.value}).`);
+                // Check if language detection failed
+                if (detectedLanguage.error) {
+                    console.error(`Language detection failed: ${detectedLanguage.error_message}. Will skip translation.`);
+                } else {
+                    console.log(`Detected language of the transcript is ${detectedLanguage.label} (ISO 639-1 code: ${detectedLanguage.value}).`);
+                }
     
                 fileInfo.metadata.original_language = detectedLanguage;
 
                 // If the detected language is not the same as the translation language, translate the transcript
-                if (detectedLanguage.value !== this.translation_language) {
+                if (!detectedLanguage.error && detectedLanguage.value !== this.translation_language) {
                     console.log(`Translating the transcript to ${this.translation_language}...`);
 
                     // Group the transcript into array elements of up to 10 paragraphs each
@@ -1181,14 +1303,19 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         languageCode: this.translation_language
                     });
 
-                    console.log(`Making paragraphs from translated transcript...`);
+                    // Check if translation failed
+                    if (translatedTranscript.error) {
+                        console.error(`Translation failed: ${translatedTranscript.error_message}. Preserving original transcript.`);
+                    } else {
+                        console.log(`Making paragraphs from translated transcript...`);
 
-                    fileInfo.metadata.paragraphs.translated_transcript = this.makeParagraphs(
-                        translatedTranscript.paragraphs.join(" "),
-                        1200
-                    );
+                        fileInfo.metadata.paragraphs.translated_transcript = this.makeParagraphs(
+                            translatedTranscript.paragraphs.join(" "),
+                            1200
+                        );
 
-                    console.log(`Finished making paragraphs from translated transcript.`);
+                        console.log(`Finished making paragraphs from translated transcript.`);
+                    }
 
                     // Capture the translation stage's time taken in milliseconds
                     stageDurations.translation =
