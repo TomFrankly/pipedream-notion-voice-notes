@@ -1,37 +1,17 @@
-/**
- * TO DO
- * 
- * [x] - Implement JSON mode where possible
- * [ ] - Upgrade to JSON schema validation where possible
- * [x] - On Summary failure, don't throw error that stops workflow. Instead, log error, continue, and craft error message in the summary object.
- * [x] - Add keyterms feature
- * [x] - Add transcription LLM cleanup feature (will use keyterms in system prompt)
- * [x] - Add Cerebras LLM option
- */
+import fileSystem from "./helpers/file-system.mjs";
+import lang from "./helpers/languages.mjs";
+import transcribe from "./helpers/transcribe.mjs";
+import textProcessor from "./helpers/text-processor.mjs";
+import ffmpegHelper from "./helpers/ffmpeg.mjs";
+import llm from "./helpers/llm.mjs";
 
-// Text utils
-import { encode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
-
-// Project utils
-import fileSystem from "./helpers/file-system.mjs"; // File system methods
-import lang from "./helpers/languages.mjs"; // Language codes
-import transcribe from "./helpers/transcribe.mjs"; // Transcription methods
-import textProcessor from "./helpers/text-processor.mjs"; // Text processing methods
-import ffmpegHelper from "./helpers/ffmpeg.mjs"; // FFmpeg methods
-import llm from "./helpers/llm.mjs"; // LLM methods
-
-const config = {
-	filePath: "",
-	chunkDir: "",
-	supportedMimes: [".flac", ".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"],
-	no_duration_flag: false,
-};
+import { encode } from "gpt-3-encoder";
 
 export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.0.91",
+    version: "0.1.8",
     type: "action",
     props: {
         instructions: {
@@ -217,17 +197,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         reloadProps: true
                     }
                 },
-                /*gladia: {
-                    name: "Gladia",
-                    recommended: "default",
-                    models: ["default"],
-                    prop: "gladia",
-                    app: {
-                        type: "app",
-                        app: "gladia",
-                        description: "This is Gladia's app property. After this loads, you should see Gladia's model options.",
-                        reloadProps: true
-                }*/
             },
             ai: {
                 openai: {
@@ -293,19 +262,16 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         };
 
-        // Function to manage all properties based on service selections
         const manageProperties = () => {
-            // Get all unique app properties from both service types
+
             const allAppProps = new Set([
                 ...Object.values(serviceConfigs.transcription).map(config => config.prop),
                 ...Object.values(serviceConfigs.ai).map(config => config.prop)
             ]);
 
-            // Get the currently selected services
             const selectedTranscriptionService = this.transcription_service;
             const selectedAiService = this.ai_service;
 
-            // Disable all app properties first
             allAppProps.forEach(propName => {
                 if (props[propName]) {
                     props[propName].hidden = true;
@@ -313,17 +279,15 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 }
             });
 
-            // Handle transcription service
             if (selectedTranscriptionService && selectedTranscriptionService !== 'none') {
                 const config = serviceConfigs.transcription[selectedTranscriptionService];
                 if (config) {
-                    // Enable app property
+
                     if (props[config.prop]) {
                         props[config.prop].hidden = false;
                         props[config.prop].disabled = false;
                     }
 
-                    // Set up model property
                     props.transcription_model = {
                         type: "string",
                         label: "Speech-to-Text Model",
@@ -335,14 +299,13 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     };
                 }
             } else {
-                // Hide transcription model if no service selected
+
                 if (props.transcription_model) {
                     props.transcription_model.hidden = true;
                     props.transcription_model.disabled = true;
                 }
             }
 
-            // Add advanced options toggle
             props.advanced_options = {
                 type: "boolean",
                 label: "Enable Advanced Options",
@@ -354,18 +317,16 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             if (this.advanced_options === true) {
 
-                // Common advanced options
                 props.chunk_size = {
                     type: "integer",
                     label: "Audio File Chunk Size",
-                    description: `Your audio file will be split into chunks before being sent to Whisper for transcription. This is done to handle Whisper's 24mb max file size limit.\n\nThis setting will let you make those chunks even smaller – anywhere between 8mb and 24mb.\n\nSince the workflow makes concurrent requests to Whisper, a smaller chunk size may allow this workflow to handle longer files.\n\nSome things to note with this setting: \n\n* Chunks will default to 24mb if you don't set a value here. I've successfully transcribed a 2-hour file at this default setting by changing my workflow's timeout limit to 300 seconds, which is possible on the free plan. \n* If you're currently using trial credit with OpenAI and haven't added your billing information, your [Audio rate limit](https://platform.openai.com/docs/guides/rate-limits/what-are-the-rate-limits-for-our-api) will likely be 3 requests per minute – meaning setting a smaller chunk size may cause you to hit that rate limit. You can fix this by adding your billing info and generating a new API key. \n* Longer files may also benefit from your workflow having a higher RAM setting. \n* There will still be limits to how long of a file you can transcribe, as the max workflow timeout setting you can choose on Pipedream's free plan is 5 minutes. If you upgrade to a paid account, you can go as high as 12 minutes.`,
+                    description: `Your audio file will be split into chunks before being sent to Whisper for transcription. This is done to handle Whisper's 24mb max file size limit.\n\nThis setting will let you make those chunks even smaller – anywhere between 4mb and 24mb.\n\nSince the workflow makes concurrent requests to the transcription service, a smaller chunk size may allow this workflow to handle longer files and/or process files more quickly, reducing credit usage.\n\nSome things to note with this setting: \n\n* If you're using Groq or OpenAI for transcription, chunks will default to 24mb if you don't set a value here, since that's the biggest file size they can handle.\n* If you're using Deepgram, AssemblyAI, Gemini, or ElevenLabs for transcription, your file will not be chunked unless you set a value here.\n* There will still be limits to how long of a file you can transcribe, as the max workflow timeout setting you can choose on Pipedream's free plan is 5 minutes. If you upgrade to a paid account, you can go as high as 12 minutes.\n* This workflow puts a 700mb cap on file size.`,
                     optional: true,
-                    min: 8,
+                    min: 4,
                     max: 24,
                     default: 24,
                 };
 
-                // Add downsampling option
                 props.enable_downsampling = {
                     type: "boolean",
                     label: "Enable Audio Downsampling",
@@ -396,14 +357,22 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     optional: true,
                 };
 
+                props.stop_stage = {
+                    type: "string",
+                    label: "Stop Stage",
+                    description: `Set this to the stage you'd like to stop at. This setting should only be used for debugging purposes.`,
+                    options: ["chunking", "transcription", "cleanup", "summary", "translation"],
+                    optional: true,
+                };
+
             } else {
-                // Hide all advanced options if advanced options are disabled
                 const advancedProps = [
                     'chunk_size',
                     'enable_downsampling',
                     'path_to_file',
                     'file_link',
-                    'debug'
+                    'debug',
+                    'stop_stage'
                 ];
                 advancedProps.forEach(prop => {
                     if (props[prop]) {
@@ -413,7 +382,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 });
             }
 
-            // Add keyterms
             if (
                 this.advanced_options === true && (
                     this.transcription_model === "slam-1" ||
@@ -433,17 +401,15 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 }
             }
 
-            // Handle AI service
             if (selectedAiService && selectedAiService !== 'none') {
                 const config = serviceConfigs.ai[selectedAiService];
                 if (config) {
-                    // Enable app property
+
                     if (props[config.prop]) {
                         props[config.prop].hidden = false;
                         props[config.prop].disabled = false;
                     }
 
-                    // Set up model property
                     props.ai_model = {
                         type: "string",
                         label: "AI Model",
@@ -454,7 +420,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         reloadProps: true
                     };
 
-                    // Add summary options property
                     props.summary_options = {
                         type: "string[]",
                         label: "Summary Options",
@@ -476,10 +441,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         disabled: false
                     };
 
-                    // Add advanced options if enabled
                     if (this.advanced_options === true) {
                         
-                        // Whisper-specific options
                         if (this.transcription_model?.toLowerCase().includes('whisper') || this.transcription_model?.toLowerCase().includes('gpt-4o-transcribe') || this.transcription_model?.toLowerCase().includes('gpt-4o-mini-transcribe') || this.transcription_model?.toLowerCase().includes('gemini')) {
                             
                             props.whisper_prompt = {
@@ -498,7 +461,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 max: 20,
                             };
                         } else {
-                            // Hide whisper-specific options if not using a whisper model
+
                             if (props.whisper_prompt) {
                                 props.whisper_prompt.hidden = true;
                                 props.whisper_prompt.disabled = true;
@@ -509,7 +472,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             }
                         }
 
-                        // AI-specific options
                         if (this.ai_service && this.ai_service !== 'none') {
                             props.translation_language = {
                                 type: "string",
@@ -559,7 +521,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 max: 20,
                             };
                         } else {
-                            // Hide AI-specific options if no AI service selected
 
                             if (props.translation_language) {
                                 props.translation_language.hidden = true;
@@ -587,7 +548,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             }
                         }
                     } else {
-                        // Hide all advanced options if advanced options are disabled
                         const advancedProps = [
                             'whisper_prompt',
                             'whisper_temperature',
@@ -599,7 +559,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             'chunk_size',
                             'enable_downsampling',
                             'path_to_file',
-                            'debug'
+                            'debug',
+                            'stop_stage'
                         ];
                         advancedProps.forEach(prop => {
                             if (props[prop]) {
@@ -611,35 +572,29 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 }
             } else if (this.ai_service === "none") {
                 
-                // Hide AI model if "none" is selected for AI service
                 if (props.ai_model) {
                     props.ai_model.hidden = true;
                     props.ai_model.disabled = true;
                 }
 
-                // Hide summary options if "none" is selected for AI service
                 if (props.summary_options) {
                     props.summary_options.hidden = true;
                     props.summary_options.disabled = true;
                 }
                 
-                // Show advanced options if "none" is selected for AI service
                 if (props.advanced_options) {
                     props.advanced_options.hidden = false;
                     props.advanced_options.disabled = false;
                 }
             } else {
-                // Hide AI model if no service selected
                 if (props.ai_model) {
                     props.ai_model.hidden = true;
                     props.ai_model.disabled = true;
                 }
-                // Hide summary options if no AI service selected
                 if (props.summary_options) {
                     props.summary_options.hidden = true;
                     props.summary_options.disabled = true;
                 }
-                // Hide advanced options if no AI service selected
                 if (props.advanced_options) {
                     props.advanced_options.hidden = true;
                     props.advanced_options.disabled = true;
@@ -647,9 +602,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         };
 
-        // Initialize app properties only if they don't exist
         const initializeAppProps = () => {
-            // Initialize transcription service app properties
             Object.values(serviceConfigs.transcription).forEach(config => {
                 if (!props[config.prop]) {
                     props[config.prop] = {
@@ -660,7 +613,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 }
             });
 
-            // Initialize AI service app properties
             Object.values(serviceConfigs.ai).forEach(config => {
                 if (!props[config.prop]) {
                     props[config.prop] = {
@@ -672,10 +624,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             });
         };
 
-        // Initialize app properties first
         initializeAppProps();
 
-        // Manage all properties based on service selections
         manageProperties();
 
         console.log("Returning props:", props);
@@ -687,29 +637,24 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         ...transcribe.methods,
         ...textProcessor.methods,
         ...llm.methods,
-        async checkSize(fileSize) {
-			if (fileSize > 700000000) {
-				throw new Error(
-					`File is too large. Files must be under 700mb and one of the following file types: ${config.supportedMimes.join(
-						", "
-					)}. Note that 700mb may be too high of a limit, due to Pipedream's 2gb temp storage maximum. This temp storage is needed for both the file itself and the chunks it is split into. You may need to compress large files before uploading.
-					
-					Note: If you upload a particularly large file and get an Out of Memory error, try setting your workflow's RAM setting higher. Learn how to do this here: https://pipedream.com/docs/workflows/settings/#memory`
-				);
-			} else {
-				// Log file size in mb to nearest hundredth
-				const readableFileSize = fileSize / 1000000;
-				console.log(
-					`File size is approximately ${readableFileSize.toFixed(1).toString()}mb.`
-				);
-			}
-		},
+        checkTimeout() {
+            const TIMEOUT_SECONDS = 290
+            const elapsedSeconds = (Date.now() - this.start_time) / 1000;
+            if (elapsedSeconds >= TIMEOUT_SECONDS) {
+                console.log(`Approaching timeout limit (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
+                return true;    
+            }
+            return false;
+        }
     },
     async run({ steps, $ }) {
-        // Object for storing performance logs
+
+        this.start_time = Date.now();
+
 		let stageDurations = {
 			setup: 0,
 			download: 0,
+            chunking: 0,
 			transcription: 0,
 			transcriptCombination: 0,
             cleanup: 0,
@@ -755,11 +700,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             enable_downsampling: this.enable_downsampling,
             path_to_file: this.path_to_file,
             file_link: this.file_link,
-            debug: this.debug
+            debug: this.debug,
+            stop_stage: this.stop_stage
         }
         console.dir(logSettings);
 
-        // Get service configurations
         const serviceConfigs = {
             transcription: {
                 openai: {
@@ -800,18 +745,18 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         };
 
-        // Set supported mimes
         this.supportedMimes = [".flac", ".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"]
+        if (this.transcription_service === "openai") {
+            // OpenAI Whisper only supports these formats
+            this.supportedMimes = [".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"]
+        }
 
-        // Validate selected models against chosen services
         if (this.transcription_service && this.transcription_service !== 'none') {
-            // Check if the service is properly configured
             const serviceProp = this[this.transcription_service];
             if (!serviceProp) {
                 throw new Error(`Transcription service ${this.transcription_service} is not properly configured. Please check your API key and try again.`);
             }
 
-            // Get the available models for the service
             const availableModels = serviceConfigs.transcription[this.transcription_service]?.models || [];
             if (!availableModels.includes(this.transcription_model)) {
                 throw new Error(
@@ -822,13 +767,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         }
 
         if (this.ai_service && this.ai_service !== 'none') {
-            // Check if the service is properly configured
             const serviceProp = this[this.ai_service];
             if (!serviceProp) {
                 throw new Error(`AI service ${this.ai_service} is not properly configured. Please check your API key and try again.`);
             }
 
-            // Get the available models for the service
             const availableModels = serviceConfigs.ai[this.ai_service]?.models || [];
             if (!availableModels.includes(this.ai_model)) {
                 throw new Error(
@@ -852,12 +795,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         console.log("Checking that file is under 700mb...");
 		await this.checkSize(this.steps.trigger.event.size);
-		console.log("File is under the size limit. Continuing...");
-
-        if (this.translation_language && this.translation_language !== "") {
-            console.log(`User set translation language to ${this.translation_language}.`);
-            config.translationLanguage = this.translation_language;
-        }
 
         const fileInfo = {};
 
@@ -865,7 +802,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
 		fileInfo.metadata.log_settings = logSettings;
 
-		// Capture the setup stage's time taken in milliseconds
 		stageDurations.setup = Number(process.hrtime.bigint() - previousTime) / 1e6;
 		console.log(`Setup stage duration: ${stageDurations.setup.toFixed(2)}ms (${
 			(stageDurations.setup / 1000).toFixed(3)
@@ -881,11 +817,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         console.log("=== DOWNLOAD STAGE ===");
 
-        // Check that the path the file variable exists, is not empty, and conforms to /tmp/file_name.extension
         if (this.path_to_file && this.path_to_file !== "") {
             console.log("User has set a custom file path for the audio file. Using that path instead of the default behavior.");
 
-            // Check that the path is valid
             if (!/^\/tmp\/.+/.test(this.path_to_file)) {
                 throw new Error("Invalid custom file path. You have a value set in the Path to File property; please ensure the path starts with /tmp/ and includes the file name. Example: /tmp/my-audio-file.mp3");
             }
@@ -916,32 +850,20 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 }
             }
 
-            if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+            if (this.supportedMimes.includes(fileInfo.metadata.mime) === false) {
                 console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
             }
-        } else if (this.steps.google_drive_download?.$return_value?.name) {
+        } else if (this.steps.download_file?.$return_value?.filePath) {
 			// Google Drive method
-            console.log("User appears to be using the current Google Drive → google_drive_download action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+            console.log("User appears to be using the current Google Drive → download_file action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
 			fileInfo.metadata.cloud_app = "Google Drive";
 			fileInfo.file_name =
-				this.steps.google_drive_download.$return_value.name
-			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
+				this.steps.download_file.$return_value.fileMetadata.name
+			fileInfo.metadata.path = this.steps.download_file.$return_value.filePath;
 			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
 			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webViewLink;
-			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
-				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
-			}
-		} else if (this.steps.download_file?.$return_value?.name) {
-			// Google Drive fallback method
-            console.log("User appears to be using the legacy Google Drive → download_file fallback action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
-			fileInfo.metadata.cloud_app = "Google Drive";
-			fileInfo.file_name = this.steps.download_file.$return_value.name
-			fileInfo.metadata.path = `/tmp/${fileInfo.file_name}`;
-			console.log(`File path of Google Drive file: ${fileInfo.metadata.path}`);
-			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
-			fileInfo.link = this.steps.trigger.event.webViewLink;
-			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+			if (this.supportedMimes.includes(fileInfo.metadata.mime) === false) {
 				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
 			}
 		} else if (
@@ -956,7 +878,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			console.log(`File path of MS OneDrive file: ${fileInfo.metadata.path}`);
 			fileInfo.metadata.mime = fileInfo.metadata.path.match(/\.\w+$/)[0];
 			fileInfo.link = this.steps.trigger.event.webUrl;
-			if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+			if (this.supportedMimes.includes(fileInfo.metadata.mime) === false) {
 				console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
 			}
 		} else if (this.steps.download_file_to_tmp?.$return_value) {
@@ -968,7 +890,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             fileInfo.metadata.mime = this.steps.download_file_to_tmp.$return_value.name.match(/\.\w+$/)[0];
             fileInfo.link = this.steps.trigger.event.link;
 
-            if (config.supportedMimes.includes(fileInfo.metadata.mime) === false) {
+            if (this.supportedMimes.includes(fileInfo.metadata.mime) === false) {
                 console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
             }
         } else {
@@ -997,7 +919,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 		fileInfo.metadata.duration = await this.getDuration(fileInfo.metadata.path);
         fileInfo.metadata.duration_formatted = this.formatDuration(fileInfo.metadata.duration);
 
-		// Capture the download stage's time taken in milliseconds
 		stageDurations.download =
 			Number(process.hrtime.bigint() - previousTime) / 1e6;
 		console.log(
@@ -1016,11 +937,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         console.log("=== TRANSCRIPTION STAGE ===");
 
-        // Check if downsampling is enabled
         let fileToProcess = fileInfo.metadata.path;
 
-        // If downsampling is enabled, downsample the file. Alternatively, if original file mime type is not supported, downsample the file.
-        if ((this.advanced_options && this.enable_downsampling) || !config.supportedMimes.includes(fileInfo.metadata.mime)) {
+        if ((this.advanced_options && this.enable_downsampling) || !this.supportedMimes.includes(fileInfo.metadata.mime)) {
             if (this.advanced_options && this.enable_downsampling) {
                 console.log("Downsampling enabled. Processing audio file...");
             } else {
@@ -1033,13 +952,60 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             console.log(`Size reduction: ${downsampledResult.sizeReduction}%`);
         }
 
-        // Chunk the file
-        const chunkFiles = await this.chunkFile({ file: fileToProcess });
+        let directUpload;
+        const eventSizeInMB = this.steps.trigger.event.size / 1000000;
+        const maxChunkSize = this.chunk_size || 24;
+        const directUploadServices = ['deepgram', 'assemblyai', 'google_gemini', 'elevenlabs'];
+
+        if (directUploadServices.includes(this.transcription_service) &&
+            (
+                !this.chunk_size ||
+                eventSizeInMB <= maxChunkSize
+            )
+        ) {
+            console.log(`Direct upload service ${this.transcription_service} is selected. Either no chunk size is set or the file size is less than the max chunk size. Uploading directly to transcription service.`);
+            directUpload = true;
+        } else if (eventSizeInMB <= maxChunkSize) {
+            console.log(`File size is less than the max chunk size. Uploading directly to transcription service ${this.transcription_service}.`);
+            directUpload = true;
+        } else {
+            console.log(`File size is greater than the max chunk size. Chunking file for transcription...`);
+            directUpload = false;
+        }
+        
+        let chunkFiles;
+        if (directUpload === true) {
+            chunkFiles = {
+                files: [fileToProcess.replace(/^\/tmp\//, "")],
+                outputDir: "/tmp"
+            }
+        } else {
+            chunkFiles = await this.chunkFile({ file: fileToProcess });
+        }
 
         console.log(`Chunks created successfully. Transcribing chunks: ${chunkFiles.files}`);
 
         fileInfo.chunks = {}
-        // Transcribe the chunk(s)
+
+        stageDurations.chunking =
+        Number(process.hrtime.bigint() - previousTime) / 1e6;
+        console.log(
+            `Chunking stage duration: ${stageDurations.chunking.toFixed(2)}ms (${
+                (stageDurations.chunking / 1000).toFixed(3)
+            } seconds)`
+        );
+        console.log(
+            `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                (totalDuration(stageDurations) / 1000).toFixed(3)
+            } seconds)`
+        );
+        previousTime = process.hrtime.bigint();
+
+        if (this.stop_stage === "chunking" || this.checkTimeout()) {
+            console.log("Stopping workflow at chunking stage.");
+            return fileInfo;
+        }
+
         fileInfo.chunks.transcript_responses = await this.transcribeFiles({
             files: chunkFiles.files,
             outputDir: chunkFiles.outputDir,
@@ -1047,7 +1013,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         await this.cleanTmp();
 
-        // Capture the transcription stage's time taken in milliseconds
 		stageDurations.transcription =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
@@ -1062,26 +1027,26 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         );
         previousTime = process.hrtime.bigint();
 
+        if (this.stop_stage === "transcription" || this.checkTimeout()) {
+            console.log("Stopping workflow at transcription stage.");
+            return fileInfo;
+        }
+
         /* -- Transcript Combination Stage -- */
 
         console.log("=== TRANSCRIPT COMBINATION STAGE ===");
 
-        // Combine all transcript chunks into a single transcript
         console.log("Combining transcript chunks...");
 		fileInfo.full_transcript = await this.combineTranscriptChunks(fileInfo.chunks.transcript_responses)
 
-        // If transcript chunks have VTT files, combine them into a single VTT file
         if (fileInfo.chunks.transcript_responses.every(chunk => chunk.vtt)) {
             console.log("Combining VTT chunks...");
             fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.chunks.transcript_responses)
         }
 
-        // Make paragraphs from the transcript (and VTT if available)
         fileInfo.metadata.paragraphs = {
             transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
             ...(fileInfo.full_vtt && fileInfo.full_vtt.length > 0 && {
-                // Split the VTT string into an array of segments, removing all leading blank lines from each segment
-                // vtt: this.splitVTTIntoBatches(fileInfo.full_vtt, 2000), 
                 vtt: fileInfo.full_vtt.split("\n\n").map(segment => {
                     const lines = segment.split('\n');
                     while (lines.length && lines[0].trim() === '') lines.shift();
@@ -1090,7 +1055,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             })
         };
 
-        // Capture the transcript combination stage's time taken in milliseconds
 		stageDurations.transcriptCombination =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
@@ -1105,7 +1069,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         );
         previousTime = process.hrtime.bigint();
 
-        // If AI Cleanup is enabled, clean the transcript
         if (this.ai_cleanup === true) {
             /* === AI CLEANUP STAGE === */
 
@@ -1113,7 +1076,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             console.log("Cleaning up transcript with AI...");
 
-            // Group the transcript into array elements of up to 10 paragraphs each
             const transcriptParagraphs = fileInfo.metadata.paragraphs.transcript.map(paragraph => paragraph.trim()).filter(paragraph => paragraph.length > 0);
             const groupedTranscript = [];
             for (let i = 0; i < transcriptParagraphs.length; i += 10) {
@@ -1122,7 +1084,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             console.log(`Condensed ${transcriptParagraphs.length} paragraphs into ${groupedTranscript.length} chunks for cleanup. Processing...`);
             
-            // Clean up the transcript using our new cleanupParagraphs function
             const cleanedTranscript = await this.cleanupParagraphs({
                 service: this.ai_service,
                 model: this.ai_model,
@@ -1130,13 +1091,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 ...(this.keyterms && this.keyterms.length > 0 && { keyterms: this.keyterms })
             });
 
-            // Check if cleanup failed
             if (cleanedTranscript.error) {
                 console.error(`Cleanup failed: ${cleanedTranscript.error_message}. Preserving original transcript.`);
             } else {
                 console.log(`Making paragraphs from cleaned transcript...`);
 
-                // Update both the paragraphs and full transcript with cleaned version
                 fileInfo.metadata.paragraphs.transcript = this.makeParagraphs(
                     cleanedTranscript.paragraphs.join(" "),
                     1200
@@ -1146,7 +1105,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             console.log(`Finished cleaning transcript.`);
 
-            // Capture the cleanup stage's time taken in milliseconds
             stageDurations.cleanup =
             Number(process.hrtime.bigint() - previousTime) / 1e6;
             console.log(
@@ -1160,9 +1118,12 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 } seconds)`
             );
             previousTime = process.hrtime.bigint();
-        }
 
-        // If an AI service is selected, proceed to summarization (and translation if selected)
+            if (this.stop_stage === "cleanup" || this.checkTimeout()) {
+                console.log("Stopping workflow at cleanup stage.");
+                return fileInfo;
+            }
+        }
 
         if (this.ai_service && this.ai_service !== "none") {
             
@@ -1172,7 +1133,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             console.log("=== SUMMARY STAGE ===");
 
-            // Set the max tokens per summary chunk based on the AI service and model
             const maxTokens = this.summary_density
                 ? this.summary_density
                 : 5000;
@@ -1194,21 +1154,18 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 );
             }
 
-            // Encode the transcript to get a rough token count
             const encodedTranscript = encode(fileInfo.full_transcript);
             console.log(
                 `Full transcript is roughly ${encodedTranscript.length} tokens. This is a rough estimate, and the actual number of input tokens may vary based on the model used.`
             );
             fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length
 
-            // Split the transcript into chunks of a specified maximum number of tokens
             fileInfo.chunks.summary_chunks = this.splitTranscript(
                 encodedTranscript,
                 maxTokens,
                 fileInfo.metadata.longest_gap
             );
 
-            // If no summary options are selected, use the first chunk as the title
             if (this.summary_options === null || this.summary_options.length === 0) {
                 console.log("No summary options selected. Using the first chunk as the title.");
 
@@ -1223,7 +1180,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 console.log("Summary options selected. Using the selected options.");
                 console.log(`Summary options: ${this.summary_options}`);
                 
-                // If summary options are selected, use the selected options
                 fileInfo.chunks.summary_responses = await this.sendToChat({
                     service: this.ai_service,
                     model: this.ai_model,
@@ -1236,12 +1192,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             fileInfo.metadata.formatted_chat = await this.formatChat(fileInfo.chunks.summary_responses);
 
-            // Make paragraphs from the summary
             if (this.summary_options.includes("Summary")) {
                 fileInfo.metadata.paragraphs.summary = this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200);
             }
 
-            // Capture the summary stage's time taken in milliseconds
             stageDurations.summary = Number(process.hrtime.bigint() - previousTime) / 1e6;
             console.log(
                 `Summary stage duration: ${stageDurations.summary.toFixed(2)}ms (${
@@ -1255,7 +1209,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             );
             previousTime = process.hrtime.bigint();
 
-            // If translation is selected, translate the transcript
+            if (this.stop_stage === "summary" || this.checkTimeout()) {
+                console.log("Stopping workflow at summary stage.");
+                return fileInfo;
+            }
+
             if (this.translation_language && this.translation_language !== "") {
                 
                 /* === TRANSLATION STAGE === */
@@ -1266,14 +1224,12 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     `User specified ${this.translation_language} for the translation. Checking if the transcript language matches...`
                 );
     
-                // Detect the language of the transcript
                 const detectedLanguage = await this.detectLanguage(
                     this.ai_service,
                     this.chat_model,
                     fileInfo.metadata.paragraphs.transcript[0]
                 );
 
-                // Check if language detection failed
                 if (detectedLanguage.error) {
                     console.error(`Language detection failed: ${detectedLanguage.error_message}. Will skip translation.`);
                 } else {
@@ -1282,11 +1238,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
     
                 fileInfo.metadata.original_language = detectedLanguage;
 
-                // If the detected language is not the same as the translation language, translate the transcript
                 if (!detectedLanguage.error && detectedLanguage.value !== this.translation_language) {
                     console.log(`Translating the transcript to ${this.translation_language}...`);
 
-                    // Group the transcript into array elements of up to 10 paragraphs each
                     const transcriptParagraphs = fileInfo.metadata.paragraphs.transcript.map(paragraph => paragraph.trim()).filter(paragraph => paragraph.length > 0);
                     const groupedTranscript = [];
                     for (let i = 0; i < transcriptParagraphs.length; i += 10) {
@@ -1295,7 +1249,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
                     console.log(`Condensed ${transcriptParagraphs.length} paragraphs into ${groupedTranscript.length} chunks for translation. Translating...`);
                     
-                    // Translate the transcript
                     const translatedTranscript = await this.translateParagraphs({
                         service: this.ai_service,
                         model: this.chat_model,
@@ -1303,7 +1256,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         languageCode: this.translation_language
                     });
 
-                    // Check if translation failed
                     if (translatedTranscript.error) {
                         console.error(`Translation failed: ${translatedTranscript.error_message}. Preserving original transcript.`);
                     } else {
@@ -1317,7 +1269,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         console.log(`Finished making paragraphs from translated transcript.`);
                     }
 
-                    // Capture the translation stage's time taken in milliseconds
                     stageDurations.translation =
                     Number(process.hrtime.bigint() - previousTime) / 1e6;
                     console.log(
@@ -1331,24 +1282,25 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         } seconds)`
                     );
                     previousTime = process.hrtime.bigint();
+
+                    if (this.stop_stage === "translation" || this.checkTimeout()) {
+                        console.log("Stopping workflow at translation stage.");
+                        return fileInfo;
+                    }
                 }
 
             }
 
         } else {
-            // Wait 100ms before proceeding to allow steps to finish
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        // Create a final object that combines the paragraphs from the transcript, summary, VTT, translated transcript, and all summary details (if any)
         fileInfo.final_results = {}
 
-        // If summary paragraphs exist, add them to the final results
         if (fileInfo.metadata.paragraphs && fileInfo.metadata.paragraphs.summary) {
             fileInfo.final_results.summary = fileInfo.metadata.paragraphs.summary;
         }
 
-        // If transcript was translated, add the translated transcript as "transctipt" and the original-language version as "original_language_transcript. Otherwise, add original language transcript as "transcript"
         if (fileInfo.metadata.paragraphs.translated_transcript) {
             fileInfo.final_results.transcript = fileInfo.metadata.paragraphs.translated_transcript;
             fileInfo.final_results.original_language_transcript = fileInfo.metadata.paragraphs.transcript;
@@ -1356,12 +1308,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             fileInfo.final_results.transcript = fileInfo.metadata.paragraphs.transcript;
         }
 
-        // If VTT paragraphs exist, add them to the final results
         if (fileInfo.metadata.paragraphs.vtt) {
             fileInfo.final_results.vtt = fileInfo.metadata.paragraphs.vtt;
         }
 
-        // Add all keys from the formatted_chat object to the final results, except for "summary", "title", and "tokens"
         if (fileInfo.metadata.formatted_chat) {
             Object.keys(fileInfo.metadata.formatted_chat).forEach(key => {
                 if (key !== "summary" && key !== "title" && key !== "tokens") {
@@ -1370,27 +1320,21 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             });
         }
 
-        // Add a property values object, which will hold data users will likely use for database properties
         fileInfo.property_values = {}
 
-        // Add the filename to the titles object
         fileInfo.property_values.filename = this.fileName;
 
-        // If the formatted_chat object has an AI-generated title, add it to the titles object
         if (fileInfo.metadata.formatted_chat && fileInfo.metadata.formatted_chat.title) {
             fileInfo.property_values.ai_title = fileInfo.metadata.formatted_chat.title;
         }
 
-        // Add the duration to to the titles 
         fileInfo.property_values.duration = fileInfo.metadata.duration;
         fileInfo.property_values.duration_formatted = fileInfo.metadata.duration_formatted;
 
-        // Create a true final return object
         const finalReturn = {}
         finalReturn.property_values = fileInfo.property_values;
         finalReturn.property_values.file_link = fileInfo.link;
 
-        // Create finalReturn.page_content from fileInfo.final_results, but with any keys removed that have empty arrays as values
         finalReturn.page_content = Object.fromEntries(
             Object.entries(fileInfo.final_results).filter(([key, value]) => value.length > 0)
         );
@@ -1403,10 +1347,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             metadata: fileInfo.metadata,
         }
         
-        // Add total duration to stageDurations
+
         stageDurations.total = totalDuration(stageDurations);
         fileInfo.metadata.performance_metrics = stageDurations;
-        // Create a formatted performance log that expresses the performance values as strings with ms and second labels
         fileInfo.metadata.performance_formatted = Object.fromEntries(
             Object.entries(fileInfo.metadata.performance_metrics).map(([stageName, stageDuration]) => [
                 stageName,
@@ -1418,7 +1361,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         console.log(`Finished transcribing and summarizing the audio file. Total duration: ${fileInfo.metadata.performance_formatted.total}. Note that this duration may be a couple seconds off from Pipedream's internal timer (see Details tab → Duration), which has a higher-level view of the workflow's runtime.`);
 
-        $.export("$summary", `Successfully processed ${fileInfo.file_name} in ${fileInfo.metadata.performance_formatted.total / 1000} seconds.`);
+        $.export("$summary", `Successfully processed ${fileInfo.file_name} in ${fileInfo.metadata.performance_formatted.total}.`);
         
         return finalReturn;
 

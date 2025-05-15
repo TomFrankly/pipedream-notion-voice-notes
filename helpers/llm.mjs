@@ -825,7 +825,9 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                     throw new Error(`Invalid language code: ${languageCode}`);
                 }
 
-                let maxConcurrent
+                let maxConcurrent;
+                let minTime;
+                
                 if (this.ai_service === "openai") {
                     maxConcurrent = 35;
                 } else if (this.ai_service === "anthropic") {
@@ -834,13 +836,23 @@ IMPORTANT: Do not include any explanatory text, markdown formatting, or code blo
                     maxConcurrent = 15;
                 } else if (this.ai_service === "groqcloud") {
                     maxConcurrent = 25;
+                } else if (this.ai_service === "cerebras") {
+                    // Cerebras has a rate limit of 30 RPM, but enforces it per second
+                    // We'll set maxConcurrent to 1 and minTime to 2000ms (2 seconds)
+                    // This ensures we stay well under their rate limits
+                    maxConcurrent = 1;
+                    minTime = 2000; // 2 seconds between requests
                 }
                 
                 const limiter = new Bottleneck({
                     maxConcurrent: maxConcurrent,
+                    minTime: minTime, // Only used for Cerebras
+                    reservoir: this.ai_service === "cerebras" ? 30 : undefined, // 30 requests per minute for Cerebras
+                    reservoirRefreshAmount: this.ai_service === "cerebras" ? 30 : undefined,
+                    reservoirRefreshInterval: this.ai_service === "cerebras" ? 60 * 1000 : undefined, // Refresh every minute
                 });
 
-                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for translation to ${language.label} (ISO 639-1 code: ${language.value}) using ${model}...`);
+                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for translation to ${language.label} (ISO 639-1 code: ${language.value}) using ${model} with rate limiting: maxConcurrent=${maxConcurrent}, minTime=${minTime || 'default'}...`);
                 
                 const results = await limiter.schedule(() => {
                     const tasks = stringsArray.map((text, index) => {
@@ -955,7 +967,9 @@ Rules:
             log_failure = (attempt, error, index) => `Attempt ${attempt} for cleanup of paragraph ${index} failed with error: ${error.message}. Retrying...`
         }) {
             try {
-                let maxConcurrent
+                let maxConcurrent;
+                let minTime;
+                
                 if (this.ai_service === "openai") {
                     maxConcurrent = 35;
                 } else if (this.ai_service === "anthropic") {
@@ -964,13 +978,23 @@ Rules:
                     maxConcurrent = 15;
                 } else if (this.ai_service === "groqcloud") {
                     maxConcurrent = 25;
+                } else if (this.ai_service === "cerebras") {
+                    // Cerebras has a rate limit of 30 RPM, but enforces it per second
+                    // We'll set maxConcurrent to 1 and minTime to 2000ms (2 seconds)
+                    // This ensures we stay well under their rate limits
+                    maxConcurrent = 1;
+                    minTime = 2000; // 2 seconds between requests
                 }
                 
                 const limiter = new Bottleneck({
                     maxConcurrent: maxConcurrent,
+                    minTime: minTime, // Only used for Cerebras
+                    reservoir: this.ai_service === "cerebras" ? 30 : undefined, // 30 requests per minute for Cerebras
+                    reservoirRefreshAmount: this.ai_service === "cerebras" ? 30 : undefined,
+                    reservoirRefreshInterval: this.ai_service === "cerebras" ? 60 * 1000 : undefined, // Refresh every minute
                 });
 
-                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for cleanup using ${model}...`);
+                console.log(`Sending ${stringsArray.length} paragraphs to ${service} for cleanup using ${model} with rate limiting: maxConcurrent=${maxConcurrent}, minTime=${minTime || 'default'}...`);
                 
                 const results = await limiter.schedule(() => {
                     const tasks = stringsArray.map((text, index) => {
@@ -1103,7 +1127,7 @@ Rules for key terms:
 			let jsonObj;
 			try {
 				jsonObj = JSON.parse(input);
-				console.log(`JSON repair not needed.`);
+				
 				return jsonObj;
 			} catch (error) {
 				try {
@@ -1189,7 +1213,9 @@ Rules for key terms:
         }) {
             try {
                 
-                let maxConcurrent
+                let maxConcurrent;
+                let minTime;
+                
                 if (this.ai_service === "openai") {
                     maxConcurrent = 35;
                 } else if (this.ai_service === "anthropic") {
@@ -1198,13 +1224,24 @@ Rules for key terms:
                     maxConcurrent = 15;
                 } else if (this.ai_service === "groqcloud") {
                     maxConcurrent = 25;
+                } else if (this.ai_service === "cerebras") {
+                    // Cerebras has a rate limit of 30 RPM, but enforces it per second
+                    // We'll set maxConcurrent to 1 and minTime to 2000ms (2 seconds)
+                    // This ensures we stay well under their rate limits
+                    maxConcurrent = 1;
+                    minTime = 2000; // 2 seconds between requests
                 }
                 
                 const limiter = new Bottleneck({
                     maxConcurrent: maxConcurrent,
+                    minTime: minTime, // Only used for Cerebras
+                    reservoir: this.ai_service === "cerebras" ? 30 : undefined, // 30 requests per minute for Cerebras
+                    reservoirRefreshAmount: this.ai_service === "cerebras" ? 30 : undefined,
+                    reservoirRefreshInterval: this.ai_service === "cerebras" ? 60 * 1000 : undefined, // Refresh every minute
                 });
 
-                console.log(`Sending ${stringsArray.length} chunks to ${service}`);
+                console.log(`Sending ${stringsArray.length} chunks to ${service} with rate limiting: maxConcurrent=${maxConcurrent}, minTime=${minTime || 'default'}`);
+                
                 const results = await limiter.schedule(() => {
                     const tasks = stringsArray.map((text, index) => {
                         
