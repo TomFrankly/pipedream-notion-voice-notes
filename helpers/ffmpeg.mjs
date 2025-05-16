@@ -63,8 +63,8 @@ export default {
                 currentUsage: this.getMemoryUsage()
             });
             
-            // For MP3 files, estimate WAV size and total temp storage needed
-            if (ext === '.mp3') {
+            // For non-WAV files, estimate WAV size and total temp storage needed
+            if (ext !== '.wav') {
                 const estimatedWavSize = this.estimateWavSize(stats.size, totalSeconds);
                 const estimatedWavSizeMB = estimatedWavSize / (1024 * 1024);
                 
@@ -107,7 +107,7 @@ export default {
                         `- Chunks (with overhead): ${Math.round(estimatedWavSizeMB * 1.1)}MB\n` +
                         `Note: Direct MP3 chunking will use more memory. Consider increasing your workflow's memory allocation if processing fails.`
                     );
-                    this.logMemoryUsage('End of file viability check (falling back to MP3)');
+                    this.logMemoryUsage('End of file viability check (falling back to original file format)');
                     return false;
                 }
             } else if (sizeInMB > 1800) {
@@ -253,15 +253,16 @@ export default {
                 
                 // For MP3 files, convert to WAV first to reduce memory usage if possible
                 let processingFile = file;
-                if (ext === '.mp3' && shouldUseWavConversion) {
+                const fileSizeInMB = fs.statSync(processingFile).size / (1024 * 1024);
+                const maxChunkSize = 24; // Maximum chunk size in MB
+                const minChunkSize = 2;  // Minimum chunk size in MB
+                const targetChunkSize = chunkSize;
+
+                if (ext !== '.wav' && shouldUseWavConversion && fileSizeInMB > maxChunkSize) {
                     processingFile = await this.convertToWav(file, ffmpegPath);
                 }
 
                 try {
-                    const fileSizeInMB = fs.statSync(processingFile).size / (1024 * 1024);
-                    const maxChunkSize = 24; // Maximum chunk size in MB
-                    const minChunkSize = 2;  // Minimum chunk size in MB
-                    const targetChunkSize = chunkSize;
                     
                     // Calculate number of chunks needed to ensure minimum chunk size
                     let numberOfChunks = Math.ceil(fileSizeInMB / targetChunkSize);
@@ -441,26 +442,18 @@ export default {
                                 }
                             };
                             
-                            // Set a timeout to ensure process cleanup
-                            const timeout = setTimeout(() => {
-                                cleanup();
-                                this.logMemoryUsage('Chunking operation timed out');
-                                reject(new Error('Chunking process timed out'));
-                            }, 30000); // 30 second timeout
-                            
-                            let errorOutput = '';
-                            let stdoutOutput = '';
-                            
                             // Monitor memory usage and timeout
                             const checkInterval = setInterval(() => {
                                 this.logMemoryUsage('During chunking');
                                 if (this.checkTimeout()) {
                                     clearInterval(checkInterval);
-                                    clearTimeout(timeout);
                                     cleanup();
                                     reject(new Error('Chunking process timed out due to workflow timeout'));
                                 }
                             }, 5000); // Check every 5 seconds
+                            
+                            let errorOutput = '';
+                            let stdoutOutput = '';
                             
                             ffmpeg.stderr.on('data', (data) => {
                                 const chunk = data.toString();
@@ -484,7 +477,6 @@ export default {
                             
                             ffmpeg.on('close', (code) => {
                                 const totalDuration = (Date.now() - startTime) / 1000;
-                                clearTimeout(timeout);
                                 clearInterval(checkInterval);
                                 cleanup();
                                 this.logMemoryUsage('End of chunking operation');
@@ -498,7 +490,6 @@ export default {
                             
                             ffmpeg.on('error', (err) => {
                                 const totalDuration = (Date.now() - startTime) / 1000;
-                                clearTimeout(timeout);
                                 clearInterval(checkInterval);
                                 cleanup();
                                 this.logMemoryUsage('Error during chunking operation');

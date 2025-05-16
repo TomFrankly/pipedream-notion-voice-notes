@@ -28,7 +28,7 @@ export default {
 						2
 					)}`
 				);
-				console.log(`Summary verbosity level: ${summary_verbosity}`);
+				console.log(`Summary verbosity level: ${summary_verbosity || 'Low (Default)'}`);
 				console.log(`Summary language: ${summary_language || 'Same as transcript'}`);
 			}
 
@@ -225,7 +225,7 @@ export default {
 
 				if (index !== undefined && index === 0) {
 					console.log(`Constructed system message:`);
-					console.dir(systemMessage);
+					console.log(systemMessage);
 				}
 
 				return systemMessage;

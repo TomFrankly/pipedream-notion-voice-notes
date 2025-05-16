@@ -11,7 +11,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.8",
+    version: "0.1.25",
     type: "action",
     props: {
         instructions: {
@@ -324,13 +324,13 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     optional: true,
                     min: 4,
                     max: 24,
-                    default: 24,
+                    default: 10,
                 };
 
                 props.enable_downsampling = {
                     type: "boolean",
                     label: "Enable Audio Downsampling",
-                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to M4A format (32kbps) before transcription. This can significantly reduce file size while maintaining quality, potentially avoiding the need for chunking.\n\n**Note:** This option may be useful for avoiding chunking of large audio files, which you may want to avoid if you're trying to generate timestamps (although this script already does the math to create accurate timestamps when combining the chunks). However, it may also increase the time each run takes, since the file won't be split into chunks that can be processed concurrently. If you run into timeout issues with this enabled, try disabling it or increasing your workflow's timeout limit.\n\n**TL;DR:** You probably don't need this, but it's here if you want to use it.`,
+                    description: `When enabled, this will downsample your audio file to 16kHz mono and convert it to M4A format (32kbps) before transcription. You probably don't need this.`,
                     default: false,
                     optional: true,
                 };
@@ -352,7 +352,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 props.debug = {
                     type: "boolean",
                     label: "Enable Debug Mode",
-                    description: `When enabled, this will enable debug mode, which will cause this step to return the full JSON objects for each transcript and summary response. You'll find these in the other_data.chunks object. When disabled, that chunks object will be omitted from the step's output.`,
+                    description: `When enabled, this will enable debug mode, which will cause this step to return the full JSON objects for each transcript and summary response.`,
                     default: false,
                     optional: true,
                 };
@@ -448,14 +448,14 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.whisper_prompt = {
                                 type: "string",
                                 label: "Transcription Prompt (Optional)",
-                                description: `You can enter a prompt here to help guide the transcription model's style. By default, the prompt will be "Hello, welcome to my lecture." which is a default prompt provided by OpenAI to help improve with punctuation. Learn more: https://platform.openai.com/docs/guides/speech-to-text/prompting`,
+                                description: `You can enter a prompt here to help guide the transcription model's style.`,
                                 optional: true,
                             };
 
                             props.whisper_temperature = {
                                 type: "integer",
                                 label: "Transcription Temperature",
-                                description: `Set the temperature for the transcription model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0. Higher temperatures may result in more "creative" output. This workflow defaults to 0.2.`,
+                                description: `Set the temperature for the transcription model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0.`,
                                 optional: true,
                                 min: 0,
                                 max: 20,
@@ -496,7 +496,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.summary_density = {
                                 type: "integer",
                                 label: "Summary Density (Advanced)",
-                                description: `*It is recommended to leave this setting at its default unless you have a good understanding of how LLMs handle tokens.*\n\nSets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nThis will enable the script to handle longer files, as the script uses concurrent requests, and your LLM will take less time to process a chunk with fewer prompt tokens.\n\nThis does mean your summary and list will be longer, as you'll get them for each chunk. You can somewhat counteract this with the **Summary Verbosity** option.\n\n**Lowering the number here will also *slightly* increase the cost of the summarization step**, both because you're getting more summarization data and because the summarization prompt's system instructions will be sent more times.\n\nDefaults to 5,000 tokens. The maximum value depends on your chosen model, and the minimum value is 500 tokens.\n\nKeep in mind that setting a very high value will result in a very sparse summary.`,
+                                description: `Sets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.`,
                                 min: 500,
                                 max: 100000,
                                 default: 5000,
@@ -515,7 +515,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.ai_temperature = {
                                 type: "integer",
                                 label: "AI Model Temperature",
-                                description: `Set the temperature for the AI model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0. Higher temperatures may result in more "creative" output, but have the potential to cause the output to fail to be valid JSON. This workflow defaults to 0.2. **Note: This setting is not available for all models, so it may be ignored depending on the model you've selected.**`,
+                                description: `Set the temperature for the AI model. Valid values are integers between 0 and 20 (inclusive), which are divided by 10 to achieve a final value between 0 and 2.0.`,
                                 optional: true,
                                 min: 0,
                                 max: 20,
@@ -637,23 +637,14 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         ...transcribe.methods,
         ...textProcessor.methods,
         ...llm.methods,
-        checkTimeout() {
-            const TIMEOUT_SECONDS = 290
-            const elapsedSeconds = (Date.now() - this.start_time) / 1000;
-            if (elapsedSeconds >= TIMEOUT_SECONDS) {
-                console.log(`Approaching timeout limit (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
-                return true;    
-            }
-            return false;
-        }
     },
     async run({ steps, $ }) {
 
         this.start_time = Date.now();
+        this.timeout_seconds = this.debug === true ? 290 : 10000
 
 		let stageDurations = {
 			setup: 0,
-			download: 0,
             chunking: 0,
 			transcription: 0,
 			transcriptCombination: 0,
@@ -676,14 +667,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         const logSettings = {
             transcription_service: this.transcription_service,
             ai_service: this.ai_service,
-            hasOpenAI: this.openai !== undefined,
-            hasAnthropic: this.anthropic !== undefined,
-            hasDeepgram: this.deepgram !== undefined,
-            hasGoogle: this.google_gemini !== undefined,
-            hasGroq: this.groqcloud !== undefined,
-            hasCerebras: this.cerebras !== undefined,
-            hasElevenLabs: this.elevenlabs !== undefined,
-            hasAssemblyAI: this.assemblyai !== undefined,
             transcription_model: this.transcription_model,
             ai_model: this.ai_model,
             summary_options: this.summary_options,
@@ -745,10 +728,30 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         };
 
-        this.supportedMimes = [".flac", ".mp3", ".m4a", ".wav", ".mp4", ".mpeg", ".mpga", ".webm"]
-        if (this.transcription_service === "openai") {
-            // OpenAI Whisper only supports these formats
-            this.supportedMimes = [".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"]
+        const commonMimes = [".flac", ".mp3", ".wav", ".webm", ".ogg", ".aac", ".m4a"];
+        
+        const serviceSpecificMimes = {
+            openai: [".mp4", ".mpeg", ".mpga"],
+            deepgram: [
+                ".mp4", ".mp2", ".pcm", 
+                ".opus", ".amr", ".mulaw", ".alaw", ".speex", ".g729"
+            ],
+            groqcloud: [".mp4", ".mpeg", ".mpga"],
+            google_gemini: [".aiff"],
+            elevenlabs: [
+                ".aiff", ".mpeg3", ".opus", 
+                ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".3gp"
+            ],
+            assemblyai: [".mp4"]
+        };
+
+        this.supportedMimes = [...commonMimes];
+
+        if (this.transcription_service && this.transcription_service !== 'none') {
+            this.supportedMimes = [
+                ...commonMimes,
+                ...(serviceSpecificMimes[this.transcription_service] || [])
+            ];
         }
 
         if (this.transcription_service && this.transcription_service !== 'none') {
@@ -793,7 +796,45 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			);
 		}
 
-        console.log("Checking that file is under 700mb...");
+        let directUpload;
+        const eventSizeInMB = this.steps.trigger.event.size / 1000000;
+        const maxChunkSize = this.chunk_size || 24;
+        const directUploadServices = ['deepgram', 'assemblyai', 'google_gemini', 'elevenlabs'];
+        const DIRECT_UPLOAD_THRESHOLD = 100;
+
+        if (directUploadServices.includes(this.transcription_service) &&
+            (
+                !this.chunk_size ||
+                this.chunk_size === 0 ||
+                eventSizeInMB <= maxChunkSize
+            )
+        ) {
+            if (eventSizeInMB <= DIRECT_UPLOAD_THRESHOLD) {
+                console.log(`Direct upload service ${this.transcription_service} is selected. Either no chunk size is set or the file size is less than the max chunk size. Uploading directly to transcription service.`);
+                directUpload = true;
+            } else {
+                console.log(`Direct upload was configured, but file size is greater than the direct upload threshold of ${DIRECT_UPLOAD_THRESHOLD}MB. Chunking file for transcription...`);
+                
+                if (!this.chunk_size) {
+                    this.chunk_size = 10;
+                }
+                
+                directUpload = false;
+            }
+        } else if (eventSizeInMB <= maxChunkSize) {
+            console.log(`File size is less than the max chunk size. Uploading directly to transcription service ${this.transcription_service}.`);
+            directUpload = true;
+        } else {
+            console.log(`File size is greater than the max chunk size. Chunking file for transcription...`);
+            if (!this.chunk_size) {
+                this.chunk_size = 10;
+            }
+            directUpload = false;
+        }
+
+        this.direct_upload = directUpload;
+
+        console.log("Checking that file is within size limits...");
 		await this.checkSize(this.steps.trigger.event.size);
 
         const fileInfo = {};
@@ -855,7 +896,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         } else if (this.steps.download_file?.$return_value?.filePath) {
 			// Google Drive method
-            console.log("User appears to be using the current Google Drive → download_file action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+            console.log("User appears to be using the current Google Drive → download_file action.")
 			fileInfo.metadata.cloud_app = "Google Drive";
 			fileInfo.file_name =
 				this.steps.download_file.$return_value.fileMetadata.name
@@ -871,7 +912,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			/^\/tmp\/.+/.test(this.steps.download_file.$return_value)
 		) {
 			// MS OneDrive method
-            console.log("User appears to be using the current Microsoft OneDrive → ms_onedrive_download action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+            console.log("User appears to be using the current Microsoft OneDrive → ms_onedrive_download action.")
 			fileInfo.metadata.cloud_app = "Microsoft OneDrive";
 			fileInfo.metadata.path = this.steps.download_file.$return_value
 			fileInfo.file_name = fileInfo.metadata.path.replace(/^\/tmp\//, "")
@@ -883,7 +924,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			}
 		} else if (this.steps.download_file_to_tmp?.$return_value) {
             // Official Dropbox method
-            console.log("User appears to be using the current Dropbox → download_file_to_tmp action. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+            console.log("User appears to be using the current Dropbox → download_file_to_tmp action.")
 			fileInfo.metadata.cloud_app = "Dropbox";
 			fileInfo.metadata.path = this.steps.download_file_to_tmp.$return_value.tmpPath
             fileInfo.file_name = this.steps.download_file_to_tmp.$return_value.name
@@ -895,7 +936,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             }
         } else {
 			// Legacy built-in Dropbox method. Deprecated in favor of using the official Dropbox → download_file_to_tmp action.
-            console.log("User appears to be using the legacy built-in Dropbox method. Attempting to set file name, path, mime type, and link in preparation for chunking.")
+            console.log("User appears to be using the legacy built-in Dropbox method.")
 			fileInfo.metadata.cloud_app = "Dropbox";
 			Object.assign(
 				fileInfo,
@@ -919,20 +960,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 		fileInfo.metadata.duration = await this.getDuration(fileInfo.metadata.path);
         fileInfo.metadata.duration_formatted = this.formatDuration(fileInfo.metadata.duration);
 
-		stageDurations.download =
-			Number(process.hrtime.bigint() - previousTime) / 1e6;
-		console.log(
-			`Download stage duration: ${stageDurations.download.toFixed(2)}ms (${
-				(stageDurations.download / 1000).toFixed(3)
-			} seconds)`
-		);
-		console.log(
-			`Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
-				(totalDuration(stageDurations) / 1000).toFixed(3)
-			} seconds)`
-		);
-		previousTime = process.hrtime.bigint();
-
         /* -- Transcription Stage -- */
 
         console.log("=== TRANSCRIPTION STAGE ===");
@@ -951,30 +978,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             console.log(`Using downsampled file: ${fileToProcess}`);
             console.log(`Size reduction: ${downsampledResult.sizeReduction}%`);
         }
-
-        let directUpload;
-        const eventSizeInMB = this.steps.trigger.event.size / 1000000;
-        const maxChunkSize = this.chunk_size || 24;
-        const directUploadServices = ['deepgram', 'assemblyai', 'google_gemini', 'elevenlabs'];
-
-        if (directUploadServices.includes(this.transcription_service) &&
-            (
-                !this.chunk_size ||
-                eventSizeInMB <= maxChunkSize
-            )
-        ) {
-            console.log(`Direct upload service ${this.transcription_service} is selected. Either no chunk size is set or the file size is less than the max chunk size. Uploading directly to transcription service.`);
-            directUpload = true;
-        } else if (eventSizeInMB <= maxChunkSize) {
-            console.log(`File size is less than the max chunk size. Uploading directly to transcription service ${this.transcription_service}.`);
-            directUpload = true;
-        } else {
-            console.log(`File size is greater than the max chunk size. Chunking file for transcription...`);
-            directUpload = false;
-        }
         
         let chunkFiles;
-        if (directUpload === true) {
+        if (this.direct_upload === true) {
             chunkFiles = {
                 files: [fileToProcess.replace(/^\/tmp\//, "")],
                 outputDir: "/tmp"
@@ -983,7 +989,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             chunkFiles = await this.chunkFile({ file: fileToProcess });
         }
 
-        console.log(`Chunks created successfully. Transcribing chunks: ${chunkFiles.files}`);
+        console.log(`Transcribing file(s): ${chunkFiles.files}`);
 
         fileInfo.chunks = {}
 
@@ -1011,7 +1017,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             outputDir: chunkFiles.outputDir,
         })
 
+
         await this.cleanTmp();
+
 
 		stageDurations.transcription =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
@@ -1150,13 +1158,13 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             if (fileInfo.metadata.longest_gap.encodedGapLength > maxTokens) {
                 console.log(
-                    `Longest sentence in the transcript exceeds the max per-chunk token length of ${maxTokens}. Transcript chunks will be split mid-sentence, potentially resulting in lower-quality summaries.`
+                    `Longest sentence in the transcript exceeds the max per-chunk token length of ${maxTokens}. Transcript chunks will be split mid-sentence.`
                 );
             }
 
             const encodedTranscript = encode(fileInfo.full_transcript);
             console.log(
-                `Full transcript is roughly ${encodedTranscript.length} tokens. This is a rough estimate, and the actual number of input tokens may vary based on the model used.`
+                `Full transcript is roughly ${encodedTranscript.length} tokens.`
             );
             fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length
 
@@ -1178,7 +1186,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 });
             } else {
                 console.log("Summary options selected. Using the selected options.");
-                console.log(`Summary options: ${this.summary_options}`);
                 
                 fileInfo.chunks.summary_responses = await this.sendToChat({
                     service: this.ai_service,
@@ -1265,8 +1272,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             translatedTranscript.paragraphs.join(" "),
                             1200
                         );
-
-                        console.log(`Finished making paragraphs from translated transcript.`);
                     }
 
                     stageDurations.translation =

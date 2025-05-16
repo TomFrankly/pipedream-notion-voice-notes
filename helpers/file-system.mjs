@@ -9,25 +9,24 @@ const execAsync = promisify(exec);
 
 export default {
     methods: {
+        checkTimeout() {
+            const TIMEOUT_SECONDS = this.timeout_seconds;
+            const elapsedSeconds = (Date.now() - this.start_time) / 1000;
+            if (elapsedSeconds >= TIMEOUT_SECONDS) {
+                console.log(`Approaching timeout limit (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
+                return true;    
+            }
+            return false;
+        },
         async checkSize(fileSize) {
-            // Services that support direct file upload without chunking
-            const directUploadServices = ['deepgram', 'assemblyai', 'google_gemini', 'elevenlabs'];
             
-            // For direct upload services, only check the original file size
-            if (directUploadServices.includes(this.transcription_service)) {
-                if (fileSize > 700000000) {
-                    throw new Error(
-                        `File is too large. Files must be under 700MB and one of the following file types: ${config.supportedMimes.join(
-                            ", "
-                        )}.`
-                    );
-                }
-                // Log file size in mb to nearest hundredth
-                const readableFileSize = fileSize / 1000000;
-                console.log(
-                    `File size is approximately ${readableFileSize.toFixed(1)}MB. Using direct upload to ${this.transcription_service}.`
+            // Check if file is too large based on multiple criteria
+            if (fileSize > 700000000) {
+                throw new Error(
+                    `File is too large. Files must be under 700MB and one of the following file types: ${config.supportedMimes.join(
+                        ", "
+                    )}. Note that 700MB may be too high of a limit, due to Pipedream's 2GB temp storage maximum.`
                 );
-                return;
             }
 
             // For services that require chunking, perform detailed size checks
@@ -43,39 +42,26 @@ export default {
             
             // Calculate total temp storage needed
             // Original file + WAV + Chunks (with 10% overhead for chunking)
-            const totalTempStorageNeeded = (fileSize + estimatedWavSize + (estimatedWavSize * 1.1)) / (1024 * 1024);
+            const totalTempStorageNeeded = (
+                (fileSize / (1024 * 1024)) + // Convert original file size to MB
+                (estimatedWavSize / (1024 * 1024)) + // Convert WAV size to MB
+                ((estimatedWavSize * 1.1) / (1024 * 1024)) // Convert chunk size to MB
+            );
             
-            console.log('File size analysis (chunking required):', {
+            console.log('File size analysis:', {
                 originalSize: `${(fileSize / (1024 * 1024)).toFixed(1)}MB`,
                 duration: `${durationInHours.toFixed(1)} hours`,
                 estimatedWavSize: `${estimatedWavSizeMB.toFixed(1)}MB`,
                 totalTempStorageNeeded: `${totalTempStorageNeeded.toFixed(1)}MB`
             });
 
-            // Check if file is too large based on multiple criteria
-            if (fileSize > 700000000) {
-                throw new Error(
-                    `File is too large. Files must be under 700MB and one of the following file types: ${config.supportedMimes.join(
-                        ", "
-                    )}. Note that 700MB may be too high of a limit, due to Pipedream's 2GB temp storage maximum.`
-                );
-            }
-
-            if (estimatedWavSize > 1800000000) { // 1.8GB
-                throw new Error(
-                    `File duration is too long. Based on the file's duration (${durationInHours.toFixed(1)} hours), ` +
-                    `the converted WAV file would be approximately ${estimatedWavSizeMB.toFixed(1)}MB. ` +
-                    `This exceeds our processing limits. Please use a shorter file or compress the audio to a lower bitrate.`
-                );
-            }
-
             if (totalTempStorageNeeded > 1800) { // 1.8GB
                 throw new Error(
-                    `Total storage requirements too high. The process would need approximately ${totalTempStorageNeeded.toFixed(1)}MB of temporary storage ` +
+                    `Total storage requirements too high. Since WAV conversion and chunking are required, the process would need approximately ${totalTempStorageNeeded.toFixed(1)}MB of temporary storage ` +
                     `(original file: ${(fileSize / (1024 * 1024)).toFixed(1)}MB, ` +
                     `WAV conversion: ${estimatedWavSizeMB.toFixed(1)}MB, ` +
                     `chunks: ${(estimatedWavSize * 1.1 / (1024 * 1024)).toFixed(1)}MB). ` +
-                    `This exceeds Pipedream's 2GB temp storage limit. Please use a shorter file or compress the audio to a lower bitrate.`
+                    `This would likely exceed Pipedream's 2GB temp storage limit (accounting for overhead). Please use a shorter file or compress the audio to a lower bitrate.`
                 );
             }
 
@@ -96,14 +82,16 @@ export default {
 				console.log(`File ${this.filePath} does not exist.`);
 			}
 
+			// Only clean chunks if not using direct upload and cleanChunks is true
 			if (
+				!this.direct_upload &&
 				cleanChunks &&
 				this.chunkDir.length > 0 &&
 				fs.existsSync(this.chunkDir)
 			) {
 				console.log(`Cleaning up ${this.chunkDir}...`);
 				await execAsync(`rm -rf "${this.chunkDir}"`);
-			} else {
+			} else if (!this.direct_upload) {
 				console.log(`Directory ${this.chunkDir} does not exist.`);
 			}
 		},
