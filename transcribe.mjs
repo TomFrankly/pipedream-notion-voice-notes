@@ -344,7 +344,7 @@ export default {
         const deepgram = createClient(this.deepgram.$auth.api_key);
         
         const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-            fs.readFileSync(fileInfo.path),
+            fs.createReadStream(fileInfo.path),
             {
                 model: "nova-2",
                 smart_format: true,

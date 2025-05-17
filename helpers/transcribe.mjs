@@ -13,7 +13,6 @@ import fs from "fs";
 import { join } from "path";
 import retry from "async-retry";
 import Bottleneck from "bottleneck";
-import fetch from "node-fetch"; // Add fetch import
 
 export default {
     methods: {
@@ -42,7 +41,7 @@ export default {
                 apiKey = this.assemblyai.$auth.api_key;
             }
 
-            console.log(`Base concurrency for ${this.transcription_service}: ${baseConcurrent}`);
+            console.log(`Base API call concurrency for ${this.transcription_service}: ${baseConcurrent}`);
 
             const apiLimiter = new Bottleneck({
                 maxConcurrent: baseConcurrent,
@@ -52,8 +51,13 @@ export default {
                 reservoirRefreshInterval: 1000,
             });
 
+            // Add error handlers for limiters
+            apiLimiter.on("failed", (error, jobInfo) => {
+                console.error(`API Limiter job failed: ${error.message}`);
+            });
+
             const BASE_CHUNK_SIZE_MB = 10;
-            const BASE_CONCURRENCY = 10;
+            const BASE_CONCURRENCY = 5;
             const MIN_CHUNK_SIZE_MB = 4;
             const MAX_CHUNK_SIZE_MB = 24;
             const MIN_CONCURRENCY = 6;
@@ -73,6 +77,11 @@ export default {
                 reservoirRefreshInterval: 1000,
             });
 
+            // Add error handler for processing limiter
+            processingLimiter.on("failed", (error, jobInfo) => {
+                console.error(`Processing Limiter job failed: ${error.message}`);
+            });
+
             const readStreams = new Set();
             const results = [];
             let activeApiCalls = 0;
@@ -84,6 +93,23 @@ export default {
             const startTime = Date.now();
 
             const memoryMultipliers = [];
+
+            // Add cleanup function
+            const cleanup = async () => {
+                // Stop all limiters
+                await apiLimiter.stop();
+                await processingLimiter.stop();
+
+                // Clean up any remaining streams
+                for (const stream of readStreams) {
+                    try {
+                        stream.destroy();
+                    } catch (error) {
+                        console.error(`Error destroying stream: ${error.message}`);
+                    }
+                }
+                readStreams.clear();
+            };
 
             const logState = (stage, file) => {
                 const now = Date.now();
@@ -110,11 +136,15 @@ export default {
                     if (stage === 'End') {
                         const totalTime = (Date.now() - startTime) / 1000;
                         const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+                        const longestLatency = Math.max(...latencies);
+                        const shortestLatency = Math.min(...latencies);
 
                         const avgMultiplier = memoryMultipliers.length > 0 ? (memoryMultipliers.reduce((a, b) => a + b, 0) / memoryMultipliers.length) : 0;
                         console.log('\nPerformance Metrics:');
                         console.log(`Total processing time: ${totalTime.toFixed(2)} seconds`);
                         console.log(`Average API latency: ${avgLatency.toFixed(2)} seconds`);
+                        console.log(`Longest API latency: ${longestLatency.toFixed(2)} seconds`);
+                        console.log(`Shortest API latency: ${shortestLatency.toFixed(2)} seconds`);
                         console.log(`Total chunks: ${files.length}`);
                         console.log(`Average time per chunk: ${(totalTime / files.length).toFixed(2)} seconds`);
                         console.log(`Average memory multiplier per chunk: ${avgMultiplier.toFixed(2)}`);
@@ -139,6 +169,14 @@ export default {
                 return await processingLimiter.schedule(async () => {
                     const filePath = join(outputDir, file);
                     const readStream = fs.createReadStream(filePath);
+                    
+                    // Add error handler for the stream
+                    readStream.on('error', (error) => {
+                        console.error(`Error reading file ${file}: ${error.message}`);
+                        readStream.destroy();
+                        readStreams.delete(readStream);
+                    });
+
                     readStreams.add(readStream);
 
                     // Get chunk size
@@ -177,23 +215,32 @@ export default {
 
                             return result;
                         });
+                    } catch (error) {
+                        console.error(`Error processing chunk ${file}: ${error.message}`);
+                        throw error;
                     } finally {
-                        readStream.destroy();
-                        readStreams.delete(readStream);
+                        try {
+                            readStream.destroy();
+                            readStreams.delete(readStream);
+                        } catch (error) {
+                            console.error(`Error cleaning up stream for ${file}: ${error.message}`);
+                        }
                     }
                 });
             };
 
-            // Process all chunks in parallel with controlled concurrency
-            const chunkPromises = files.map((file, index) => processChunk(file, index));
-            const chunkResults = await Promise.all(chunkPromises);
-            results.push(...chunkResults);
-
-            // Clean up any remaining streams
-            for (const stream of readStreams) {
-                stream.destroy();
+            try {
+                // Process all chunks in parallel with controlled concurrency
+                const chunkPromises = files.map((file, index) => processChunk(file, index));
+                const chunkResults = await Promise.all(chunkPromises);
+                results.push(...chunkResults);
+            } catch (error) {
+                console.error(`Error during transcription: ${error.message}`);
+                throw error;
+            } finally {
+                // Ensure cleanup happens even if there's an error
+                await cleanup();
             }
-            readStreams.clear();
 
             // Log final state
             logState('End', 'Final');
@@ -304,7 +351,7 @@ export default {
                 } else {
                     return {
                         text: response.text,
-                        timestamps: response.segments,
+                        // timestamps: response.segments,
                         vtt: this.generateVTT(response.segments),
                         metadata: {
                             language: response.language,
@@ -369,7 +416,7 @@ export default {
 
                 return {
                     text: response.text,
-                    timestamps: response.segments,
+                    // timestamps: response.segments,
                     vtt: this.generateVTT(response.segments),
                     metadata: {
                         language: response.language,
@@ -436,7 +483,7 @@ export default {
                 const returnObject = {
                     text: result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '',
                     confidence: result?.results?.channels?.[0]?.alternatives?.[0]?.confidence,
-                    paragraphs: result?.results?.channels?.[0]?.alternatives?.[0]?.paragraphs?.transcript,
+                    // paragraphs: result?.results?.channels?.[0]?.alternatives?.[0]?.paragraphs?.transcript,
                     language: result?.results?.channels?.[0]?.detected_language,
                     utterances: result?.results?.utterances,
                     vtt: vttOutput,
@@ -479,7 +526,7 @@ export default {
                     vtt: response.additional_formats[0].content,
                     speakers: response.speakers,
                     audio_events: response.audio_events,
-                    additional_formats: response.additional_formats,
+                    // additional_formats: response.additional_formats,
                     metadata: {
                         language: response.language,
                         duration: response.duration,

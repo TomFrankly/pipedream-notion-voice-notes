@@ -1,6 +1,4 @@
-import natural from "natural"; // Sentence tokenization
-import { franc, francAll } from "franc"; // Language detection
-import { encode, decode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
+import { encode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
 
 export default {
     methods: {

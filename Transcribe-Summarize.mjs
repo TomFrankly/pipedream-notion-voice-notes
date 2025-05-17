@@ -11,7 +11,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.25",
+    version: "0.1.44",
     type: "action",
     props: {
         instructions: {
@@ -320,11 +320,19 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 props.chunk_size = {
                     type: "integer",
                     label: "Audio File Chunk Size",
-                    description: `Your audio file will be split into chunks before being sent to Whisper for transcription. This is done to handle Whisper's 24mb max file size limit.\n\nThis setting will let you make those chunks even smaller – anywhere between 4mb and 24mb.\n\nSince the workflow makes concurrent requests to the transcription service, a smaller chunk size may allow this workflow to handle longer files and/or process files more quickly, reducing credit usage.\n\nSome things to note with this setting: \n\n* If you're using Groq or OpenAI for transcription, chunks will default to 24mb if you don't set a value here, since that's the biggest file size they can handle.\n* If you're using Deepgram, AssemblyAI, Gemini, or ElevenLabs for transcription, your file will not be chunked unless you set a value here.\n* There will still be limits to how long of a file you can transcribe, as the max workflow timeout setting you can choose on Pipedream's free plan is 5 minutes. If you upgrade to a paid account, you can go as high as 12 minutes.\n* This workflow puts a 700mb cap on file size.`,
+                    description: `By default, your audio file will be split into 10mb chunks before being sent to your chosen transcription service. This is done both to handle the max file size limits of some transcription services and to greatly speed up the transcription process, which reduces credit usage.\n\nYou can change the chunk size here to be anywhere between 4mb and 24mb.\n\n**Note:** Deepgram, AssemblyAI, Gemini, and ElevenLabs can accept larger files. You can set **Disable Chunking** to **True** below if you'd like to send the entire file at once – though this will only happen for files under a certain size, due to the low default RAM setting of Pipedream workflows.`,
                     optional: true,
                     min: 4,
                     max: 24,
                     default: 10,
+                };
+
+                props.disable_chunking = {
+                    type: "boolean",
+                    label: "Disable Chunking",
+                    description: `When enabled, this will disable chunking of your audio file. This will cause the workflow to send your entire file to the transcription service at once (if possible), which may result in a longer runtime and/or higher credit usage.`,
+                    default: false,
+                    optional: true,
                 };
 
                 props.enable_downsampling = {
@@ -368,6 +376,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             } else {
                 const advancedProps = [
                     'chunk_size',
+                    'disable_chunking',
                     'enable_downsampling',
                     'path_to_file',
                     'file_link',
@@ -557,6 +566,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             'verbosity',
                             'ai_temperature',
                             'chunk_size',
+                            'disable_chunking',
                             'enable_downsampling',
                             'path_to_file',
                             'debug',
@@ -680,6 +690,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             verbosity: this.verbosity,
             ai_temperature: this.ai_temperature,
             chunk_size: this.chunk_size,
+            disable_chunking: this.disable_chunking,
             enable_downsampling: this.enable_downsampling,
             path_to_file: this.path_to_file,
             file_link: this.file_link,
@@ -796,46 +807,34 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			);
 		}
 
-        let directUpload;
-        const eventSizeInMB = this.steps.trigger.event.size / 1000000;
+        console.log("Checking that file is within size limits...");
+        this.file_size = this.steps.trigger.event.size;
+		await this.checkSize(this.file_size, true);
+
+
+        const eventSizeInMB = this.file_size / 1000000;
         const maxChunkSize = this.chunk_size || 24;
         const directUploadServices = ['deepgram', 'assemblyai', 'google_gemini', 'elevenlabs'];
-        const DIRECT_UPLOAD_THRESHOLD = 100;
+        const DIRECT_UPLOAD_THRESHOLD = 700;
 
         if (directUploadServices.includes(this.transcription_service) &&
-            (
-                !this.chunk_size ||
-                this.chunk_size === 0 ||
-                eventSizeInMB <= maxChunkSize
-            )
+            eventSizeInMB <= DIRECT_UPLOAD_THRESHOLD &&
+            this.disable_chunking === true
         ) {
-            if (eventSizeInMB <= DIRECT_UPLOAD_THRESHOLD) {
-                console.log(`Direct upload service ${this.transcription_service} is selected. Either no chunk size is set or the file size is less than the max chunk size. Uploading directly to transcription service.`);
-                directUpload = true;
-            } else {
-                console.log(`Direct upload was configured, but file size is greater than the direct upload threshold of ${DIRECT_UPLOAD_THRESHOLD}MB. Chunking file for transcription...`);
-                
-                if (!this.chunk_size) {
-                    this.chunk_size = 10;
-                }
-                
-                directUpload = false;
-            }
+            console.log(`Direct upload service ${this.transcription_service} is selected, file size is less than the direct upload threshold of ${DIRECT_UPLOAD_THRESHOLD}MB, and disable chunking is true. Uploading directly to transcription service.`);
+
+            this.direct_upload = true;
+
         } else if (eventSizeInMB <= maxChunkSize) {
             console.log(`File size is less than the max chunk size. Uploading directly to transcription service ${this.transcription_service}.`);
-            directUpload = true;
+            this.direct_upload = true;
         } else {
             console.log(`File size is greater than the max chunk size. Chunking file for transcription...`);
             if (!this.chunk_size) {
                 this.chunk_size = 10;
             }
-            directUpload = false;
+            this.direct_upload = false;
         }
-
-        this.direct_upload = directUpload;
-
-        console.log("Checking that file is within size limits...");
-		await this.checkSize(this.steps.trigger.event.size);
 
         const fileInfo = {};
 
@@ -960,9 +959,26 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 		fileInfo.metadata.duration = await this.getDuration(fileInfo.metadata.path);
         fileInfo.metadata.duration_formatted = this.formatDuration(fileInfo.metadata.duration);
 
-        /* -- Transcription Stage -- */
+        this.duration = fileInfo.metadata.duration;
 
-        console.log("=== TRANSCRIPTION STAGE ===");
+        console.log(`File duration: ${fileInfo.metadata.duration_formatted}`);
+
+        stageDurations.download = Number(process.hrtime.bigint() - previousTime) / 1e6;
+        console.log(
+            `Download stage duration: ${stageDurations.download.toFixed(2)}ms (${
+                (stageDurations.download / 1000).toFixed(3)
+            } seconds)`
+        );
+        console.log(
+            `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                (totalDuration(stageDurations) / 1000).toFixed(3)
+            } seconds)`
+        );
+        previousTime = process.hrtime.bigint();
+
+        /* -- Chunking/Conversion Stage -- */
+
+        console.log("=== CHUNKING/CONVERSION STAGE ===");
 
         let fileToProcess = fileInfo.metadata.path;
 
@@ -989,10 +1005,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             chunkFiles = await this.chunkFile({ file: fileToProcess });
         }
 
-        console.log(`Transcribing file(s): ${chunkFiles.files}`);
-
-        fileInfo.chunks = {}
-
         stageDurations.chunking =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
@@ -1007,19 +1019,25 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         );
         previousTime = process.hrtime.bigint();
 
-        if (this.stop_stage === "chunking" || this.checkTimeout()) {
+        if (this.stop_stage === "chunking" || await this.earlyTermination()) {
             console.log("Stopping workflow at chunking stage.");
             return fileInfo;
         }
+
+        /* -- Transcription Stage -- */
+
+        console.log("=== TRANSCRIPTION STAGE ===");
+
+        console.log(`Transcribing file(s): ${chunkFiles.files}`);
+
+        fileInfo.chunks = {}
 
         fileInfo.chunks.transcript_responses = await this.transcribeFiles({
             files: chunkFiles.files,
             outputDir: chunkFiles.outputDir,
         })
 
-
         await this.cleanTmp();
-
 
 		stageDurations.transcription =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
@@ -1035,7 +1053,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         );
         previousTime = process.hrtime.bigint();
 
-        if (this.stop_stage === "transcription" || this.checkTimeout()) {
+        if (this.stop_stage === "transcription" || await this.earlyTermination()) {
             console.log("Stopping workflow at transcription stage.");
             return fileInfo;
         }
@@ -1050,6 +1068,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         if (fileInfo.chunks.transcript_responses.every(chunk => chunk.vtt)) {
             console.log("Combining VTT chunks...");
             fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.chunks.transcript_responses)
+        }
+
+        if (!this.debug) {
+            this.cleanupLargeObjects({object: fileInfo.chunks.transcript_responses, objectName: 'fileInfo.chunks.transcript_responses', debug: this.debug});
         }
 
         fileInfo.metadata.paragraphs = {
@@ -1127,7 +1149,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             );
             previousTime = process.hrtime.bigint();
 
-            if (this.stop_stage === "cleanup" || this.checkTimeout()) {
+            if (this.stop_stage === "cleanup" || await this.earlyTermination()) {
                 console.log("Stopping workflow at cleanup stage.");
                 return fileInfo;
             }
@@ -1166,13 +1188,18 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             console.log(
                 `Full transcript is roughly ${encodedTranscript.length} tokens.`
             );
-            fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length
+            fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length;
 
             fileInfo.chunks.summary_chunks = this.splitTranscript(
                 encodedTranscript,
                 maxTokens,
                 fileInfo.metadata.longest_gap
             );
+
+            // Clean up the encoded transcript
+            if (!this.debug) {
+                this.cleanupLargeObjects({object: encodedTranscript, objectName: 'encoded_transcript', debug: this.debug});
+            }
 
             if (this.summary_options === null || this.summary_options.length === 0) {
                 console.log("No summary options selected. Using the first chunk as the title.");
@@ -1199,6 +1226,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             fileInfo.metadata.formatted_chat = await this.formatChat(fileInfo.chunks.summary_responses);
 
+            // Clean up the entire chunks object now that we're done with it
+            if (!this.debug) {
+                this.cleanupLargeObjects({object: fileInfo.chunks, objectName: 'fileInfo.chunks', debug: this.debug});
+            }
+
             if (this.summary_options.includes("Summary")) {
                 fileInfo.metadata.paragraphs.summary = this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200);
             }
@@ -1216,7 +1248,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             );
             previousTime = process.hrtime.bigint();
 
-            if (this.stop_stage === "summary" || this.checkTimeout()) {
+            if (this.stop_stage === "summary" || await this.earlyTermination()) {
                 console.log("Stopping workflow at summary stage.");
                 return fileInfo;
             }
@@ -1288,7 +1320,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     );
                     previousTime = process.hrtime.bigint();
 
-                    if (this.stop_stage === "translation" || this.checkTimeout()) {
+                    if (this.stop_stage === "translation" || await this.earlyTermination()) {
                         console.log("Stopping workflow at translation stage.");
                         return fileInfo;
                     }
@@ -1336,6 +1368,17 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         fileInfo.property_values.duration = fileInfo.metadata.duration;
         fileInfo.property_values.duration_formatted = fileInfo.metadata.duration_formatted;
 
+        stageDurations.total = totalDuration(stageDurations);
+        fileInfo.metadata.performance_metrics = stageDurations;
+        fileInfo.metadata.performance_formatted = Object.fromEntries(
+            Object.entries(fileInfo.metadata.performance_metrics).map(([stageName, stageDuration]) => [
+                stageName,
+                stageDuration > 1000
+                    ? `${(stageDuration / 1000).toFixed(2)} seconds`
+                    : `${stageDuration.toFixed(2)}ms`,
+            ])
+        );
+
         const finalReturn = {}
         finalReturn.property_values = fileInfo.property_values;
         finalReturn.property_values.file_link = fileInfo.link;
@@ -1347,22 +1390,24 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         finalReturn.other_data = {
             file_name: fileInfo.file_name,
             full_transcript: fileInfo.full_transcript,
+            ...(fileInfo.metadata.formatted_chat && fileInfo.metadata.formatted_chat.summary && { summary: fileInfo.metadata.formatted_chat.summary }),
             ...(fileInfo.full_vtt && { full_vtt: fileInfo.full_vtt }),
             ...(this.debug && this.debug === true && { chunks: fileInfo.chunks }),
-            metadata: fileInfo.metadata,
+            performance: fileInfo.metadata.performance_formatted,
+            metadata: {
+                log_settings: fileInfo.metadata.log_settings ?? null,
+                cloud_app: fileInfo.metadata.cloud_app ?? null,
+                path: fileInfo.metadata.path ?? null,
+                mime: fileInfo.metadata.mime ?? null,
+                duration: fileInfo.metadata.duration ?? null,
+                duration_formatted: fileInfo.metadata.duration_formatted ?? null,
+                longest_gap: fileInfo.metadata.longest_gap ?? null,
+                estimated_transcript_tokens: fileInfo.metadata.estimated_transcript_tokens ?? null,
+                original_language: fileInfo.metadata.original_language ?? null,
+            }
         }
         
-
-        stageDurations.total = totalDuration(stageDurations);
-        fileInfo.metadata.performance_metrics = stageDurations;
-        fileInfo.metadata.performance_formatted = Object.fromEntries(
-            Object.entries(fileInfo.metadata.performance_metrics).map(([stageName, stageDuration]) => [
-                stageName,
-                stageDuration > 1000
-                    ? `${(stageDuration / 1000).toFixed(2)} seconds`
-                    : `${stageDuration.toFixed(2)}ms`,
-            ])
-        );
+        this.logMemoryUsage('Final memory log');
 
         console.log(`Finished transcribing and summarizing the audio file. Total duration: ${fileInfo.metadata.performance_formatted.total}. Note that this duration may be a couple seconds off from Pipedream's internal timer (see Details tab → Duration), which has a higher-level view of the workflow's runtime.`);
 

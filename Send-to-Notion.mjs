@@ -8,7 +8,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.43",
+    version: "0.0.44",
     props: {
         instructions: {
             type: "alert",
@@ -298,7 +298,7 @@ Finally, select the sections you'd like to include in your note and configure th
                         },
                         {
                             label: "Timestamped Transcript",
-                            value: "vtt",
+                            value: "timestamped_transcript",
                         },
                         {
                             label: "Main Points",

@@ -9,16 +9,47 @@ const execAsync = promisify(exec);
 
 export default {
     methods: {
-        checkTimeout() {
-            const TIMEOUT_SECONDS = this.timeout_seconds;
-            const elapsedSeconds = (Date.now() - this.start_time) / 1000;
-            if (elapsedSeconds >= TIMEOUT_SECONDS) {
-                console.log(`Approaching timeout limit (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
-                return true;    
+        cleanupLargeObjects({object, objectName = 'unnamed', debug = false}) {
+            if (!debug) {
+                const beforeMemory = process.memoryUsage().heapUsed;
+                console.log(`Clearing out large object '${objectName}' from memory...`);
+                
+                // Instead of reassigning the parameter, we'll clear the object's properties
+                if (Array.isArray(object)) {
+                    object.length = 0;
+                } else if (typeof object === 'object' && object !== null) {
+                    Object.keys(object).forEach(key => {
+                        object[key] = null;
+                    });
+                }
+
+                const afterMemory = process.memoryUsage().heapUsed;
+                const memorySaved = (beforeMemory - afterMemory) / 1024; // Convert to KB
+                
+                console.log(`Cleared out large object '${objectName}' from memory. Memory saved: ${memorySaved.toFixed(2)} KB`);
             }
+        },
+
+        async earlyTermination() {
+            const TIMEOUT_SECONDS = this.timeout_seconds;
+            const EARLY_TERMINATION_SECONDS = 3; // 3 seconds before timeout
+            const elapsedSeconds = (Date.now() - this.start_time) / 1000;
+            
+            if (elapsedSeconds >= TIMEOUT_SECONDS) {
+                console.log(`Timeout limit reached (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
+                await this.cleanTmp(true);
+                return true;
+            }
+            
+            if (elapsedSeconds >= (TIMEOUT_SECONDS - EARLY_TERMINATION_SECONDS)) {
+                console.log(`Early termination triggered at ${elapsedSeconds.toFixed(2)}s (${EARLY_TERMINATION_SECONDS}s before timeout)`);
+                await this.cleanTmp(true);
+                return true;
+            }
+            
             return false;
         },
-        async checkSize(fileSize) {
+        async checkSize(fileSize, sizeCheckOnly = false) {
             
             // Check if file is too large based on multiple criteria
             if (fileSize > 700000000) {
@@ -27,6 +58,10 @@ export default {
                         ", "
                     )}. Note that 700MB may be too high of a limit, due to Pipedream's 2GB temp storage maximum.`
                 );
+            }
+
+            if (sizeCheckOnly) {
+                return;
             }
 
             // For services that require chunking, perform detailed size checks
