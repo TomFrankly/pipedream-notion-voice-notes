@@ -1,10 +1,10 @@
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg"; // ffmpeg
+import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 import { parseFile } from "music-metadata"; // Audio duration parser
 
 // Node.js utils
 import { promisify } from "util"; // Promisify
 import fs from "fs"; // File system
-import { inspect } from "util"; // Object inspection
 import { join, extname } from "path"; // Path handling
 import { exec, spawn } from "child_process"; // Shell commands
 
@@ -67,196 +67,22 @@ export default {
             });
         },
 
-        getSafeMemoryLimit() {
-            // Pipedream's default memory limit is 256MB, but lets' assume only 180mb for this step
-            // We'll use 90% of this to leave some buffer for Node.js
-            return 180 * 0.9; // ~162MB safe limit
-        },
-
-        estimateWavSize(mp3Size, duration) {
-            // WAV is uncompressed, so we need to estimate based on duration
-            // Using 16-bit, 16kHz, mono as baseline (optimal for speech)
-            const bytesPerSecond = 16000 * 1 * 2; // sample rate * channels * bytes per sample
-            return duration * bytesPerSecond;
-        },
-
-        async checkFileViability(file, ffmpegPath, chunkSize) {
-            // Calculate safe memory limit
-            const safeMemoryLimit = this.getSafeMemoryLimit();
-            console.log(`Memory settings:`, {
-                safeMemoryLimit: `${safeMemoryLimit}MB`,
-                currentUsage: this.logMemoryUsage('Start of file viability check')
-            });
-
-            const sizeInMB = this.file_size / (1024 * 1024);
-            const ext = extname(file).toLowerCase();
-            
-            // Get duration and calculate total seconds
-            const durationSeconds = this.duration;
-            const totalSeconds = durationSeconds;
-            
-            // For non-WAV files, estimate WAV size and total temp storage needed
-            if (ext !== '.wav') {
-                const estimatedWavSize = this.estimateWavSize(this.file_size, totalSeconds);
-                const estimatedWavSizeMB = estimatedWavSize / (1024 * 1024);
-                
-                // Calculate number of chunks needed
-                const maxChunkSize = 24; // Maximum chunk size in MB
-                const minChunkSize = 2;  // Minimum chunk size in MB
-                const targetChunkSize = chunkSize ?? maxChunkSize;
-                
-                let numberOfChunks = Math.ceil(estimatedWavSizeMB / targetChunkSize);
-                let adjustedChunkSize = targetChunkSize;
-                
-                // Calculate the size of the last chunk if we use target chunk size
-                const lastChunkSize = estimatedWavSizeMB - (Math.floor(estimatedWavSizeMB / targetChunkSize) * targetChunkSize);
-                
-                // If the last chunk would be too small, redistribute the excess across all chunks
-                if (lastChunkSize < minChunkSize && numberOfChunks > 1) {
-                    // Calculate how much we need to add to the last chunk to meet minimum size
-                    const deficit = minChunkSize - lastChunkSize;
-                    
-                    // Reduce number of chunks by 1 since we're eliminating the last chunk
-                    numberOfChunks--;
-                    
-                    // Redistribute this deficit across the remaining chunks
-                    // This will make all chunks slightly larger, but keep them closer to target size
-                    adjustedChunkSize = targetChunkSize + (deficit / numberOfChunks);
-                    
-                    // If the adjusted chunk size would exceed 25MB, set it to 20MB
-                    // This only happens in the edge case where we have a file just over 24MB
-                    if (adjustedChunkSize > 25) {
-                        adjustedChunkSize = 20;
-                    }
-                }
-                
-                // Calculate total temp storage needed for WAV conversion
-                const totalTempStorageNeeded = sizeInMB + estimatedWavSizeMB + (estimatedWavSizeMB * 1.1); // 1.1 factor for chunk overhead
-                
-                console.log('File size analysis:', {
-                    originalSize: `${Math.round(sizeInMB)}MB`,
-                    estimatedWavSize: `${Math.round(estimatedWavSizeMB)}MB`,
-                    numberOfChunks,
-                    targetChunkSize: `${targetChunkSize}MB`,
-                    adjustedChunkSize: `${adjustedChunkSize}MB`,
-                    totalTempStorageNeeded: `${Math.round(totalTempStorageNeeded)}MB`,
-                    safeMemoryLimit: `${safeMemoryLimit}MB`,
-                    duration: `${totalSeconds} seconds`
-                });
-                
-                // If WAV conversion would exceed temp storage, return false to indicate we should use direct MP3 chunking
-                if (totalTempStorageNeeded > 1800) { // 1.8GB to leave buffer
-                    console.log(
-                        `File too large for WAV conversion. Will use direct MP3 chunking instead.\n` +
-                        `Estimated storage needed for WAV: ${Math.round(totalTempStorageNeeded)}MB\n` +
-                        `- Original MP3: ${Math.round(sizeInMB)}MB\n` +
-                        `- Converted WAV: ${Math.round(estimatedWavSizeMB)}MB\n` +
-                        `- Chunks (with overhead): ${Math.round(estimatedWavSizeMB * 1.1)}MB\n` +
-                        `Note: Direct MP3 chunking will use more memory. Consider increasing your workflow's memory allocation if processing fails.`
-                    );
-                    this.logMemoryUsage('End of file viability check (falling back to original file format)');
-                    return false;
-                }
-            } else if (sizeInMB > 1800) {
-                throw new Error('File too large for processing within temp storage constraints');
-            }
-            
-            // Estimate memory needs based on bitrate
-            const bitrate = (this.file_size * 8) / totalSeconds; // bits per second
-            const estimatedChunkMemory = (bitrate * 30) / (8 * 1024 * 1024); // MB for 30-sec chunk
-            
-            if (estimatedChunkMemory > safeMemoryLimit) {
-                console.warn(
-                    `Warning: Estimated chunk memory (${Math.round(estimatedChunkMemory)}MB) exceeds safe limit (${safeMemoryLimit}MB).\n` +
-                    `Consider increasing your workflow's memory allocation or using a smaller chunk size.`
-                );
-            }
-            
-            this.logMemoryUsage('End of file viability check');
-            return true;
-        },
-
-        async convertToWav(file, ffmpegPath) {
-            const wavFile = file.replace('.mp3', '.wav');
-            return new Promise((resolve, reject) => {
-                this.logMemoryUsage('Start of MP3 to WAV conversion');
-                
-                const startTime = Date.now();
-                
-                const ffmpeg = spawnWithTracking(ffmpegPath, [
-                    '-i', file,
-                    '-acodec', 'pcm_s16le',
-                    '-ar', '16000',     // 16kHz - optimal for speech recognition
-                    '-ac', '1',         // Mono
-                    '-bufsize', '512k', // Smaller buffer size
-                    '-max_muxing_queue_size', '512',
-                    wavFile
-                ]);
-                
-                let errorOutput = '';
-                
-                ffmpeg.stderr.on('data', async (data) => {
-                    const chunk = data.toString();
-                    if (chunk.includes('Error')) {
-                        errorOutput += chunk;
-                        console.log(`ffmpeg error: ${chunk}`);
-                    }
-                    
-                    if (await this.earlyTermination()) {
-                        ffmpeg.kill();
-                        reject(new Error('WAV conversion terminated due to timeout'));
-                        return;
-                    }
-                });
-                
-                ffmpeg.on('close', (code) => {
-                    const duration = (Date.now() - startTime) / 1000;
-                    this.logMemoryUsage('End of MP3 to WAV conversion');
-                    console.log(`WAV conversion completed in ${duration.toFixed(2)} seconds`);
-                    if (code === 0) {
-                        resolve(wavFile);
-                    } else {
-                        reject(new Error(`ffmpeg process failed with code ${code}: ${errorOutput}`));
-                    }
-                });
-                
-                ffmpeg.on('error', (err) => {
-                    const duration = (Date.now() - startTime) / 1000;
-                    this.logMemoryUsage('Error during MP3 to WAV conversion');
-                    console.log(`WAV conversion failed after ${duration.toFixed(2)} seconds`);
-                    reject(new Error(`ffmpeg process error: ${err.message}`));
-                });
-            });
-        },
-
-        // Existing methods
         async getDuration(filePath) {
-			try {
-				let dataPack;
-				try {
-					dataPack = await parseFile(filePath);
-				} catch (error) {
-					console.warn(
-						"Failed to read audio file metadata while getting the duration of the audio file with music-metadata. The file format might be unsupported or corrupted, or the file might no longer exist at the specified file path (which is in temp storage). If you are using the Google Drive or OneDrive versions of this workflow and are currently setting it up, please try testing your 'download' step again in order to re-download the file into temp storage. Then test this step again. Learn more here: https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/#error-failed-to-read-audio-file-metadata"
-					);
-					return 0;
-				}
-
-				const duration = Math.round(
-					await inspect(dataPack.format.duration, {
-						showHidden: false,
-						depth: null,
-					})
-				);
-				console.log(`Successfully got duration: ${duration} seconds`);
-				return duration;
-			} catch (error) {
-				console.warn(
-					`An error occurred while getting the duration of the audio file with music-metadata: ${error.message}. Continuing with duration set to 0.`
-				);
-				return 0;
-			}
-		},
+            try {
+                const dataPack = await parseFile(filePath, {
+                    duration: true,
+                    skipCovers: true
+                });
+                
+                const duration = Math.round(dataPack.format.duration);
+                console.log(`Successfully got duration with music-metadata: ${duration} seconds`);
+                return duration;
+                
+            } catch (error) {
+                throw new Error(`Failed to get the duration of the audio file, which is required for this workflow. The file format might be unsupported or corrupted, or the file might no longer exist at the specified file path (which is in temp storage). Before re-testing this step, please re-test your 'download' step again in order to re-download the file into temp storage. Then test this step again. Learn more here: https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/#error-failed-to-read-audio-file-metadata`);
+            }
+        },
+        
         formatDuration(seconds) {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
@@ -264,6 +90,61 @@ export default {
             
             return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
         },
+
+        calculateSegmentTime(fileSize, duration) {
+            // Check for invalid duration
+            if (!duration || duration <= 0) {
+                console.warn('Invalid duration detected (0 or negative). Returning duration to create single chunk.');
+                return duration || 0;
+            }
+
+            // Convert file size to bytes if it's not already
+            const fileSizeInBytes = typeof fileSize === 'number' ? fileSize : parseInt(fileSize);
+            
+            // Calculate average bitrate in bits per second
+            const bitrate = (fileSizeInBytes * 8) / duration;
+            
+            if (!this.chunk_size) {
+                this.chunk_size = 24;
+            }
+            
+            const targetChunkSizeBytes = this.chunk_size * 1024 * 1024;
+            
+            // Calculate initial segment time based on target chunk size
+            let segmentTime = Math.ceil((targetChunkSizeBytes * 8) / bitrate);
+            
+            // Calculate number of full chunks and duration of last chunk
+            const numFullChunks = Math.floor(duration / segmentTime);
+            const lastChunkDuration = duration - (numFullChunks * segmentTime);
+            
+            // If last chunk would be too small (less than 30 seconds) and we have more than one chunk
+            if (lastChunkDuration < 30 && numFullChunks > 0) {
+                // Option A: Increase segment time to merge the last chunk
+                // This will make all chunks slightly larger but avoid a tiny last chunk
+                segmentTime = Math.ceil(duration / numFullChunks);
+                
+                // Verify that the new segment time won't result in chunks that are too large
+                const estimatedChunkSize = (segmentTime * bitrate) / 8;
+                if (estimatedChunkSize > 25 * 1024 * 1024) { // If chunks would be over 25MB
+                    // Option B: Reduce segment time to create more chunks
+                    segmentTime = Math.ceil(duration / (numFullChunks + 1));
+                }
+            }
+            
+            // If segment time is equal to or greater than duration, return duration
+            // This indicates we should not split the file
+            if (segmentTime >= duration) {
+                console.log(`File will not be split (segment time ${this.formatDuration(segmentTime)} >= duration ${this.formatDuration(duration)})`);
+                return duration;
+            }
+            
+            // Calculate final number of chunks
+            const totalChunks = Math.ceil(duration / segmentTime);
+            console.log(`File will be split into ${totalChunks} chunks with segment time ${this.formatDuration(segmentTime)}`);
+            
+            return segmentTime;
+        },
+
         async chunkFile({ file }) {
             try {
                 if (!file) {
@@ -277,13 +158,6 @@ export default {
                 console.log('Initial memory usage:', this.logMemoryUsage('Start of chunkFile function'));
                 
                 const ffmpegPath = ffmpegInstaller.path;
-                const ext = extname(file).toLowerCase();
-                
-                // Get chunk size from this.chunk_size or use default
-                const chunkSize = this.chunk_size || 24; // Default to 24MB if not set
-                
-                // Check file viability and determine if we should use WAV conversion
-                const shouldUseWavConversion = await this.checkFileViability(file, ffmpegPath, chunkSize);
                 
                 const chunkDirName = "chunks-" + this.steps.trigger.context.id;
                 const outputDir = join("/tmp", chunkDirName);
@@ -297,271 +171,165 @@ export default {
                 }
 
                 console.log(`Chunking file: ${file}`);
-                
-                // For large MP3 files, convert to WAV first to reduce memory usage if possible
-                let processingFile = file;
-                let fileSizeInMB = this.file_size / (1024 * 1024);
-                const conversionThreshold = 24; // 24MB
-                const maxChunkSize = 24; // Maximum chunk size in MB
-                const minChunkSize = 2;  // Minimum chunk size in MB
-                const targetChunkSize = chunkSize;
 
-                if (ext !== '.wav' && shouldUseWavConversion && fileSizeInMB > conversionThreshold) {
-                    console.log(`Converting large MP3 file to WAV to reduce memory usage...`);
-                    processingFile = await this.convertToWav(file, ffmpegPath);
-                    fileSizeInMB = fs.statSync(processingFile).size / (1024 * 1024);
-                    console.log(`File size after conversion: ${fileSizeInMB}MB`);
-                } else {
-                    console.log(`File size is ${fileSizeInMB}MB, which is less than the conversion threshold of ${conversionThreshold}MB, so we will not convert the file to WAV.`);
+                // Get chunk size from this.chunk_size or use default
+                const chunkSize = this.chunk_size || 24; // Default to 24MB if not set
+                
+                let fileSizeInMB = this.file_size / (1024 * 1024);
+                console.log(`Full file size: ${fileSizeInMB.toFixed(2)}MB. Target chunk size: ${chunkSize}MB. Commencing chunking...`);
+
+                // Calculate segment time using our new function
+                const segmentTime = this.calculateSegmentTime(this.file_size, this.duration);
+
+                // If segment time equals duration, we don't need to split the file
+                if (segmentTime === this.duration) {
+                    try {
+                        await execAsync(`cp "${file}" "${outputDir}/chunk-000${extname(file)}"`);
+                        console.log(`Created 1 chunk: ${outputDir}/chunk-000${extname(file)}`);
+                        // Clean up original file immediately after copying
+                        try {
+                            await fs.promises.unlink(file);
+                            console.log('Original file cleaned up after copying');
+                        } catch (error) {
+                            console.warn('Failed to cleanup original file:', error);
+                        }
+                        const files = await fs.promises.readdir(outputDir);
+                        return {
+                            files: files,
+                            outputDir: outputDir,
+                        }
+                    } catch (error) {
+                        throw new Error(`Failed to copy single chunk file: ${error.message}`);
+                    }
+                }
+                
+                // Use spawn for the chunking operation with optimized memory settings
+                const chunkFile = () => {
+                    return new Promise((resolve, reject) => {
+                        this.logMemoryUsage('Start of chunking operation');
+                        
+                        const startTime = Date.now();
+                        let lastChunkTime = startTime;
+                        let chunkCount = 0;
+
+                        // Modified args
+                        const args = [
+                            '-hide_banner', '-loglevel', 'info', '-y',
+                            '-analyzeduration', '0',
+                            '-probesize', `32k`,
+                            '-thread_queue_size', '64',
+                            '-i', file,
+                            '-c:a', 'copy',
+                            '-f', 'segment',
+                            '-segment_time', `${segmentTime}`,
+                            '-reset_timestamps', '1',
+                            '-map', '0:a:0',
+                            '-max_muxing_queue_size', '64',
+                            `${outputDir}/chunk-%03d${extname(file)}`
+                        ]
+                        
+                        console.log(`Splitting file into chunks with ffmpeg command: ${ffmpegPath} ${args.join(' ')}`);
+                        
+                        const ffmpeg = spawnWithTracking(ffmpegPath, args);
+                        
+                        const cleanup = () => {
+                            if (ffmpeg && !ffmpeg.killed) {
+                                ffmpeg.kill();
+                            }
+                        };
+                        
+                        // Monitor memory usage and timeout
+                        const checkInterval = setInterval(async () => {
+                            this.logMemoryUsage('During chunking');
+                            
+                            // Add memory pressure check
+                            const usage = process.memoryUsage();
+                            const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
+                            const rssMB = Math.round(usage.rss / 1024 / 1024);
+                            
+                            // If memory usage is too high, force cleanup
+                            // if (heapUsedMB > 150 || rssMB > 500) {  // Adjust these thresholds based on your needs
+                            //     console.warn(`High memory usage detected: Heap=${heapUsedMB}MB, RSS=${rssMB}MB. Forcing cleanup...`);
+                            //     clearInterval(checkInterval);
+                            //     cleanup();
+                            //     reject(new Error('Chunking process terminated due to high memory usage'));
+                            //     return;
+                            // }
+                            
+                            if (await this.earlyTermination()) {
+                                clearInterval(checkInterval);
+                                cleanup();
+                                reject(new Error('Chunking process terminated due to timeout'));
+                                return;
+                            }
+                        }, 2000); // Check every 2 seconds instead of 5
+                        
+                        let errorOutput = '';
+                        let stdoutOutput = '';
+                        
+                        ffmpeg.stderr.on('data', (data) => {
+                            const chunk = data.toString();
+                            errorOutput += chunk;
+                            // Check for chunk creation messages
+                            if (chunk.includes('Opening') && chunk.includes('chunk-')) {
+                                const currentTime = Date.now();
+                                const chunkDuration = (currentTime - lastChunkTime) / 1000;
+                                chunkCount++;
+                                console.log(`Created chunk ${chunkCount} in ${chunkDuration.toFixed(2)} seconds`);
+                                lastChunkTime = currentTime;
+                            }
+                            console.log(`ffmpeg stderr: ${chunk}`);
+                        });
+                        
+                        ffmpeg.stdout.on('data', (data) => {
+                            const chunk = data.toString();
+                            stdoutOutput += chunk;
+                            console.log(`ffmpeg stdout: ${chunk}`);
+                        });
+                        
+                        ffmpeg.on('close', (code) => {
+                            const totalDuration = (Date.now() - startTime) / 1000;
+                            clearInterval(checkInterval);
+                            cleanup();
+                            this.logMemoryUsage('End of chunking operation');
+                            console.log(`Chunking completed in ${totalDuration.toFixed(2)} seconds (${chunkCount} chunks)`);
+                            if (code === 0) {
+                                resolve();
+                            } else {
+                                reject(new Error(`ffmpeg process failed with code ${code}:\nstdout: ${stdoutOutput}\nstderr: ${errorOutput}`));
+                            }
+                        });
+                        
+                        ffmpeg.on('error', (err) => {
+                            const totalDuration = (Date.now() - startTime) / 1000;
+                            clearInterval(checkInterval);
+                            cleanup();
+                            this.logMemoryUsage('Error during chunking operation');
+                            console.log(`Chunking failed after ${totalDuration.toFixed(2)} seconds (${chunkCount} chunks completed)`);
+                            reject(new Error(`ffmpeg process error: ${err.message}\nstdout: ${stdoutOutput}\nstderr: ${errorOutput}`));
+                        });
+                    });
+                };
+                
+                await chunkFile();
+
+                // Clean up original file immediately after chunking
+                try {
+                    await fs.promises.unlink(file);
+                    console.log('Original file cleaned up after chunking');
+                } catch (error) {
+                    console.warn('Failed to cleanup original file:', error);
                 }
 
-                try {
-                    
-                    // Calculate number of chunks needed to ensure minimum chunk size
-                    let numberOfChunks = Math.ceil(fileSizeInMB / targetChunkSize);
-                    let adjustedChunkSize = targetChunkSize;
-                    
-                    // Calculate the size of the last chunk if we use target chunk size
-                    const lastChunkSize = fileSizeInMB - (Math.floor(fileSizeInMB / targetChunkSize) * targetChunkSize);
-                    
-                    // If the last chunk would be too small, redistribute the excess across all chunks
-                    if (lastChunkSize < minChunkSize && numberOfChunks > 1) {
-                        // Calculate how much we need to add to the last chunk to meet minimum size
-                        const deficit = minChunkSize - lastChunkSize;
-                        
-                        // Reduce number of chunks by 1 since we're eliminating the last chunk
-                        numberOfChunks--;
-                        
-                        // Redistribute this deficit across the remaining chunks
-                        // This will make all chunks slightly larger, but keep them closer to target size
-                        adjustedChunkSize = targetChunkSize + (deficit / numberOfChunks);
-                        
-                        // If the adjusted chunk size would exceed 25MB, set it to 20MB
-                        // This only happens in the edge case where we have a file just over 24MB
-                        if (adjustedChunkSize > 25) {
-                            adjustedChunkSize = 20;
-                        }
-                    }
+                const chunkFiles = await fs.promises.readdir(outputDir);
+                const chunkCount = chunkFiles.filter((file) =>
+                    file.includes("chunk-")
+                ).length;
+                console.log(`Created ${chunkCount} chunks.`);
 
-                    console.log(
-                        `Full file size: ${fileSizeInMB.toFixed(2)}MB. Target chunk size: ${targetChunkSize}MB. Adjusted chunk size: ${adjustedChunkSize}MB. Number of chunks: ${numberOfChunks}. Commencing chunking...`
-                    );
-
-                    if (numberOfChunks === 1) {
-                        try {
-                            await execAsync(`cp "${processingFile}" "${outputDir}/chunk-000${extname(processingFile)}"`);
-                            console.log(`Created 1 chunk: ${outputDir}/chunk-000${extname(processingFile)}`);
-                            // Clean up original file immediately after copying
-                            try {
-                                await fs.promises.unlink(processingFile);
-                                console.log('Original file cleaned up after copying');
-                            } catch (error) {
-                                console.warn('Failed to cleanup original file:', error);
-                            }
-                            const files = await fs.promises.readdir(outputDir);
-                            return {
-                                files: files,
-                                outputDir: outputDir,
-                            }
-                        } catch (error) {
-                            throw new Error(`Failed to copy single chunk file: ${error.message}`);
-                        }
-                    }
-                    
-                    // Calculate segment time based on adjusted chunk size
-                    const fileSizeInBytes = fs.statSync(processingFile).size;
-                    const bitrate = (fileSizeInBytes * 8) / this.duration; // bits per second
-                    const segmentTime = Math.ceil((adjustedChunkSize * 1024 * 1024 * 8) / bitrate);
-
-                    console.log(`File duration: ${this.formatDuration(this.duration)}, segment time: ${segmentTime} seconds (based on ${adjustedChunkSize}MB chunks)`);
-                    
-                    // Use spawn for the chunking operation with optimized memory settings
-                    const chunkFile = () => {
-                        return new Promise((resolve, reject) => {
-                            this.logMemoryUsage('Start of chunking operation');
-                            
-                            const startTime = Date.now();
-                            let lastChunkTime = startTime;
-                            let chunkCount = 0;
-                            
-                            // Set buffer sizes based on file format
-                            let bufferSize, probeSize;
-                            switch (extname(processingFile).toLowerCase()) {
-                                case '.wav':
-                                    // WAV is uncompressed, can use very small buffers
-                                    bufferSize = 64;  // Reduced from 128
-                                    probeSize = 8;   // Reduced from 16
-                                    break;
-                                case '.mp3':
-                                    // MP3 needs moderate buffers for decoding
-                                    bufferSize = 128; // Reduced from 256
-                                    probeSize = 32;  // Reduced from 64
-                                    break;
-                                case '.m4a':
-                                case '.aac':
-                                    // AAC-based formats need moderate buffers
-                                    bufferSize = 96;  // Reduced from 192
-                                    probeSize = 16;  // Reduced from 32
-                                    break;
-                                case '.ogg':
-                                case '.opus':
-                                    // Ogg/Opus formats are efficient
-                                    bufferSize = 64;  // Reduced from 128
-                                    probeSize = 8;   // Reduced from 16
-                                    break;
-                                case '.flac':
-                                    // FLAC is compressed but efficient
-                                    bufferSize = 96;  // Reduced from 192
-                                    probeSize = 16;  // Reduced from 32
-                                    break;
-                                default:
-                                    // For unknown formats, use conservative but smaller settings
-                                    bufferSize = 128; // Reduced from 256
-                                    probeSize = 32;  // Reduced from 64
-                                    console.log(`Using default buffer sizes for unknown format: ${ext}`);
-                            }
-                            
-                            console.log(`Buffer settings for ${extname(processingFile)}:`, {
-                                bufferSize: `${bufferSize}k`,
-                                probeSize: `${probeSize}k`
-                            });
-                            
-                            // Input options (must come before input file)
-                            const inputArgs = [
-                                '-thread_queue_size', '256',  // Reduced from 512
-                                '-probesize', `${probeSize}k`,
-                                '-i', processingFile
-                            ];
-                            
-                            // Output options (must come before output file)
-                            const outputArgs = [
-                                '-f', 'segment',
-                                '-segment_time', segmentTime.toString(),
-                                '-c', 'copy',  // Use copy for both WAV and MP3 to maintain efficiency
-                                '-max_muxing_queue_size', '256',  // Reduced from 512
-                                '-fflags', '+genpts',
-                                '-reset_timestamps', '1',
-                                '-map', '0',
-                                '-bufsize', `${bufferSize}k`,
-                                '-loglevel', 'info',
-                                `${outputDir}/chunk-%03d${extname(processingFile)}`
-                            ];
-                            
-                            // Combine all arguments
-                            const args = [...inputArgs, ...outputArgs];
-                            
-                            console.log(`Splitting file into chunks with ffmpeg command: ${ffmpegPath} ${args.join(' ')}`);
-                            
-                            const ffmpeg = spawnWithTracking(ffmpegPath, args);
-                            
-                            const cleanup = () => {
-                                if (ffmpeg && !ffmpeg.killed) {
-                                    ffmpeg.kill();
-                                }
-                            };
-                            
-                            // Monitor memory usage and timeout
-                            const checkInterval = setInterval(async () => {
-                                this.logMemoryUsage('During chunking');
-                                
-                                // Add memory pressure check
-                                const usage = process.memoryUsage();
-                                const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
-                                const rssMB = Math.round(usage.rss / 1024 / 1024);
-                                
-                                // If memory usage is too high, force cleanup
-                                if (heapUsedMB > 150 || rssMB > 500) {  // Adjust these thresholds based on your needs
-                                    console.warn(`High memory usage detected: Heap=${heapUsedMB}MB, RSS=${rssMB}MB. Forcing cleanup...`);
-                                    clearInterval(checkInterval);
-                                    cleanup();
-                                    reject(new Error('Chunking process terminated due to high memory usage'));
-                                    return;
-                                }
-                                
-                                if (await this.earlyTermination()) {
-                                    clearInterval(checkInterval);
-                                    cleanup();
-                                    reject(new Error('Chunking process terminated due to timeout'));
-                                    return;
-                                }
-                            }, 2000); // Check every 2 seconds instead of 5
-                            
-                            let errorOutput = '';
-                            let stdoutOutput = '';
-                            
-                            ffmpeg.stderr.on('data', (data) => {
-                                const chunk = data.toString();
-                                errorOutput += chunk;
-                                // Check for chunk creation messages
-                                if (chunk.includes('Opening') && chunk.includes('chunk-')) {
-                                    const currentTime = Date.now();
-                                    const chunkDuration = (currentTime - lastChunkTime) / 1000;
-                                    chunkCount++;
-                                    console.log(`Created chunk ${chunkCount} in ${chunkDuration.toFixed(2)} seconds`);
-                                    lastChunkTime = currentTime;
-                                }
-                                console.log(`ffmpeg stderr: ${chunk}`);
-                            });
-                            
-                            ffmpeg.stdout.on('data', (data) => {
-                                const chunk = data.toString();
-                                stdoutOutput += chunk;
-                                console.log(`ffmpeg stdout: ${chunk}`);
-                            });
-                            
-                            ffmpeg.on('close', (code) => {
-                                const totalDuration = (Date.now() - startTime) / 1000;
-                                clearInterval(checkInterval);
-                                cleanup();
-                                this.logMemoryUsage('End of chunking operation');
-                                console.log(`Chunking completed in ${totalDuration.toFixed(2)} seconds (${chunkCount} chunks)`);
-                                if (code === 0) {
-                                    resolve();
-                                } else {
-                                    reject(new Error(`ffmpeg process failed with code ${code}:\nstdout: ${stdoutOutput}\nstderr: ${errorOutput}`));
-                                }
-                            });
-                            
-                            ffmpeg.on('error', (err) => {
-                                const totalDuration = (Date.now() - startTime) / 1000;
-                                clearInterval(checkInterval);
-                                cleanup();
-                                this.logMemoryUsage('Error during chunking operation');
-                                console.log(`Chunking failed after ${totalDuration.toFixed(2)} seconds (${chunkCount} chunks completed)`);
-                                reject(new Error(`ffmpeg process error: ${err.message}\nstdout: ${stdoutOutput}\nstderr: ${errorOutput}`));
-                            });
-                        });
-                    };
-                    
-                    await chunkFile();
-
-                    // Clean up original file immediately after chunking
-                    try {
-                        await fs.promises.unlink(processingFile);
-                        console.log('Original file cleaned up after chunking');
-                    } catch (error) {
-                        console.warn('Failed to cleanup original file:', error);
-                    }
-
-                    const chunkFiles = await fs.promises.readdir(outputDir);
-                    const chunkCount = chunkFiles.filter((file) =>
-                        file.includes("chunk-")
-                    ).length;
-                    console.log(`Created ${chunkCount} chunks.`);
-
-                    return {
-                        files: chunkFiles,
-                        outputDir: outputDir,
-                    }
-                } catch (error) {
-                    // Ensure cleanup on error
-                    try {
-                        await fs.promises.unlink(processingFile);
-                        console.log('Original file cleaned up after error');
-                    } catch (cleanupError) {
-                        console.warn('Failed to cleanup original file after error:', cleanupError);
-                    }
-                    throw new Error(`Failed during file chunking process: ${error.message}`);
+                return {
+                    files: chunkFiles,
+                    outputDir: outputDir,
                 }
             } catch (error) {
                 console.error(`Chunking process failed: ${error.message}`);

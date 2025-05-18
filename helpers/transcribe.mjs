@@ -57,11 +57,11 @@ export default {
             });
 
             const BASE_CHUNK_SIZE_MB = 10;
-            const BASE_CONCURRENCY = 5;
+            const BASE_CONCURRENCY = 8;
             const MIN_CHUNK_SIZE_MB = 4;
             const MAX_CHUNK_SIZE_MB = 24;
             const MIN_CONCURRENCY = 6;
-            const MAX_CONCURRENCY = 20;
+            const MAX_CONCURRENCY = 30;
 
             const chunkSizeMB = Math.max(MIN_CHUNK_SIZE_MB, Math.min(MAX_CHUNK_SIZE_MB, this.chunk_size || BASE_CHUNK_SIZE_MB));
 

@@ -15,7 +15,8 @@ export default {
 			index,
 			summary_options,
 			summary_verbosity,
-			summary_language
+			summary_language,
+			totalChunks
 		) {
 			const prompt = {};
 
@@ -53,11 +54,25 @@ export default {
 				languagePrefix = ` You will write your summary in ${language.label} (ISO 639-1 code: "${language.value}").`;
 			}
 
+			let chunkContext;
+
+			if (index && index === 0) {
+				if (totalChunks === 1) {
+					chunkContext = `You are writing a summary of this transcript in its entirety. Focus on providing a complete summary of the transcript.`
+				} else {
+					chunkContext = `You are writing a summary of a transcript that has ${totalChunks} parts. This is the first chunk of the transcript.`
+				}
+			} else {
+				chunkContext = `You are writing a summary of a transcript has multiple parts. This is the ${index + 1} of ${totalChunks} chunks. Focus on the content of this chunk, but be aware that your goal is to extract information from this chunk that will be used to create a summary of the entire transcript.`	
+			}
+
 			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON. Do not write backticks or code blocks. Only write valid JSON.${
 				languagePrefix ? languagePrefix : ""
 			}
 			
 			If the speaker in a transcript identifies themselves, use their name in your summary content instead of writing generic terms like "the speaker". If they do not, you can write "the speaker".
+			
+			${chunkContext}
 			
 			Analyze the transcript provided, then provide the following:
 			

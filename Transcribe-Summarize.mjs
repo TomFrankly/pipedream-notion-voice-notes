@@ -1,3 +1,9 @@
+/**
+ * To Do:
+ * 
+ * - Adjust target chunk size to target segment size
+ */
+
 import fileSystem from "./helpers/file-system.mjs";
 import lang from "./helpers/languages.mjs";
 import transcribe from "./helpers/transcribe.mjs";
@@ -5,13 +11,11 @@ import textProcessor from "./helpers/text-processor.mjs";
 import ffmpegHelper from "./helpers/ffmpeg.mjs";
 import llm from "./helpers/llm.mjs";
 
-import { encode } from "gpt-3-encoder";
-
 export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.44",
+    version: "0.1.52",
     type: "action",
     props: {
         instructions: {
@@ -505,10 +509,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.summary_density = {
                                 type: "integer",
                                 label: "Summary Density (Advanced)",
-                                description: `Sets the maximum number of tokens (word fragments) for each chunk of your transcript, and therefore the max number of user-prompt tokens that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.`,
-                                min: 500,
-                                max: 100000,
-                                default: 5000,
+                                description: `Sets the maximum number of paragraphs for each chunk of your transcript, and therefore the max number of paragraphs that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nDefaults to 20 paragraphs (of 3 sentences each), with a minimum of 1 and a maximum of 200.\n\n**Note:** Depending on your chosen AI model it is possible to set this number too high.`,
+                                min: 1,
+                                max: 200,
+                                default: 20,
                                 optional: true,
                             };
                             
@@ -1062,17 +1066,25 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         console.log("=== TRANSCRIPT COMBINATION STAGE ===");
 
+        this.logMemoryUsage('Start of transcript combination');
+
         console.log("Combining transcript chunks...");
-		fileInfo.full_transcript = await this.combineTranscriptChunks(fileInfo.chunks.transcript_responses)
+        fileInfo.full_transcript = await this.combineTranscriptChunks(fileInfo.chunks.transcript_responses)
+
+        this.logMemoryUsage('After combining transcript chunks');
 
         if (fileInfo.chunks.transcript_responses.every(chunk => chunk.vtt)) {
             console.log("Combining VTT chunks...");
             fileInfo.full_vtt = await this.combineVTTChunks(fileInfo.chunks.transcript_responses)
         }
 
+        this.logMemoryUsage('After combining VTT chunks');
+
         if (!this.debug) {
             this.cleanupLargeObjects({object: fileInfo.chunks.transcript_responses, objectName: 'fileInfo.chunks.transcript_responses', debug: this.debug});
         }
+
+        this.logMemoryUsage('After cleaning transcript responses');
 
         fileInfo.metadata.paragraphs = {
             transcript: this.makeParagraphs(fileInfo.full_transcript, 1200),
@@ -1085,7 +1097,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             })
         };
 
-		stageDurations.transcriptCombination =
+        this.logMemoryUsage('After creating paragraphs');
+
+        stageDurations.transcriptCombination =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
         console.log(
             `Transcript combination stage duration: ${stageDurations.transcriptCombination.toFixed(2)}ms (${
@@ -1163,47 +1177,21 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
             console.log("=== SUMMARY STAGE ===");
 
-            const maxTokens = this.summary_density
+            this.logMemoryUsage('Start of summary stage');
+
+            const maxParagraphs = this.summary_density
                 ? this.summary_density
-                : 5000;
-
-            console.log(`Max tokens per summary chunk: ${maxTokens}`);
-
-            // Find the longest period gap in the transcript
-            fileInfo.metadata.longest_gap = this.findLongestPeriodGap(
-                fileInfo.full_transcript,
-                maxTokens
-            );
-            console.log(
-                `Longest period gap info: ${JSON.stringify(fileInfo.metadata.longest_gap, null, 2)}`
-            );
-
-            if (fileInfo.metadata.longest_gap.encodedGapLength > maxTokens) {
-                console.log(
-                    `Longest sentence in the transcript exceeds the max per-chunk token length of ${maxTokens}. Transcript chunks will be split mid-sentence.`
-                );
-            }
-
-            const encodedTranscript = encode(fileInfo.full_transcript);
-            console.log(
-                `Full transcript is roughly ${encodedTranscript.length} tokens.`
-            );
-            fileInfo.metadata.estimated_transcript_tokens = encodedTranscript.length;
+                : 5;
 
             fileInfo.chunks.summary_chunks = this.splitTranscript(
-                encodedTranscript,
-                maxTokens,
-                fileInfo.metadata.longest_gap
+                fileInfo.metadata.paragraphs.transcript,
+                maxParagraphs
             );
 
-            // Clean up the encoded transcript
-            if (!this.debug) {
-                this.cleanupLargeObjects({object: encodedTranscript, objectName: 'encoded_transcript', debug: this.debug});
-            }
+            this.logMemoryUsage('After splitting transcript');
 
             if (this.summary_options === null || this.summary_options.length === 0) {
                 console.log("No summary options selected. Using the first chunk as the title.");
-
                 
                 const titleArr = [fileInfo.chunks.summary_chunks[0]];
                 fileInfo.chunks.summary_responses = await this.sendToChat({
@@ -1221,15 +1209,21 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 });
             }
 
+            this.logMemoryUsage('After getting summary responses');
+
             console.log(`Summary array preview from ${this.ai_service} (${this.ai_model}):`);
             console.log(JSON.stringify(fileInfo.chunks.summary_responses, null, 2).slice(0, 1000) + "...");
 
             fileInfo.metadata.formatted_chat = await this.formatChat(fileInfo.chunks.summary_responses);
 
+            this.logMemoryUsage('After formatting chat');
+
             // Clean up the entire chunks object now that we're done with it
             if (!this.debug) {
                 this.cleanupLargeObjects({object: fileInfo.chunks, objectName: 'fileInfo.chunks', debug: this.debug});
             }
+
+            this.logMemoryUsage('After cleaning chunks object');
 
             if (this.summary_options.includes("Summary")) {
                 fileInfo.metadata.paragraphs.summary = this.makeParagraphs(fileInfo.metadata.formatted_chat.summary, 1200);
@@ -1402,7 +1396,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 duration: fileInfo.metadata.duration ?? null,
                 duration_formatted: fileInfo.metadata.duration_formatted ?? null,
                 longest_gap: fileInfo.metadata.longest_gap ?? null,
-                estimated_transcript_tokens: fileInfo.metadata.estimated_transcript_tokens ?? null,
                 original_language: fileInfo.metadata.original_language ?? null,
             }
         }

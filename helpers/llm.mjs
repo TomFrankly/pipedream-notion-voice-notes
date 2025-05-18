@@ -13,9 +13,6 @@ import lang from "./languages.mjs";
 import retry from "async-retry"; // Retry handler
 import Bottleneck from "bottleneck";
 import { jsonrepair } from "jsonrepair";
-import { encode, decode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
-import { franc, francAll } from "franc"; // Language detection
-import natural from "natural";
 
 export default {
     methods: {
@@ -131,7 +128,7 @@ export default {
             
             try {
                 const response = await openai.chat.completions.create({
-                    model: model ?? "gpt-3.5-turbo",
+                    model: model ?? "gpt-4.1-nano",
                     messages: [
                         {
                             role: "system",
@@ -328,70 +325,20 @@ export default {
             }
         },
 
-        splitTranscript(encodedTranscript, maxTokens, periodInfo) {
-			console.log(`Splitting transcript into chunks of ${maxTokens} tokens...`);
+        splitTranscript(paragraphs, maxParagraphs) {
+            console.log(`Splitting transcript into chunks of ${maxParagraphs} paragraphs...`);
 
-			const stringsArray = [];
-			let currentIndex = 0;
-			let round = 0;
+            const stringsArray = [];
+            
+            // Process paragraphs in chunks of maxParagraphs
+            for (let i = 0; i < paragraphs.length; i += maxParagraphs) {
+                const chunk = paragraphs.slice(i, i + maxParagraphs);
+                stringsArray.push(chunk.join(' '));
+            }
 
-			while (currentIndex < encodedTranscript.length) {
-				//console.log(`Round ${round++} of transcript splitting...`);
-
-				let endIndex = Math.min(currentIndex + maxTokens, encodedTranscript.length);
-
-				//console.log(`Current endIndex: ${endIndex}`);
-				const nonPeriodEndIndex = endIndex;
-
-				if (periodInfo.longestGap !== -1) {
-					let forwardEndIndex = endIndex;
-					let backwardEndIndex = endIndex;
-
-					let maxForwardEndIndex = 100;
-					let maxBackwardEndIndex = 100;
-
-					while (
-						forwardEndIndex < encodedTranscript.length &&
-						maxForwardEndIndex > 0 &&
-						decode([encodedTranscript[forwardEndIndex]]) !== "."
-					) {
-						forwardEndIndex++;
-						maxForwardEndIndex--;
-					}
-
-					while (
-						backwardEndIndex > 0 &&
-						maxBackwardEndIndex > 0 &&
-						decode([encodedTranscript[backwardEndIndex]]) !== "."
-					) {
-						backwardEndIndex--;
-						maxBackwardEndIndex--;
-					}
-
-					if (
-						Math.abs(forwardEndIndex - nonPeriodEndIndex) <
-						Math.abs(backwardEndIndex - nonPeriodEndIndex)
-					) {
-						endIndex = forwardEndIndex;
-					} else {
-						endIndex = backwardEndIndex;
-					}
-
-					if (endIndex < encodedTranscript.length) {
-						endIndex++;
-					}
-
-				}
-
-				const chunk = encodedTranscript.slice(currentIndex, endIndex);
-				stringsArray.push(decode(chunk));
-
-				currentIndex = endIndex;
-			}
-
-			console.log(`Split transcript into ${stringsArray.length} chunks.`);
-			return stringsArray;
-		},
+            console.log(`Split transcript into ${stringsArray.length} chunks.`);
+            return stringsArray;
+        },
 
         async detectLanguage(service, model, text) {
             const systemMessage = `You are a language detection service. Your ONLY task is to detect the language of the provided text and return a valid JSON object with exactly two properties:
@@ -843,7 +790,7 @@ Rules for key terms:
                         
                         const prompt = this.createPrompt(text, date);
 
-                        const systemMessage = this.createSystemMessage(index, this.summary_options, this.verbosity, this.translation_language);
+                        const systemMessage = this.createSystemMessage(index, this.summary_options, this.verbosity, this.translation_language, stringsArray.length);
                         
                         return this.llmRequest({
                             service: service,
@@ -955,190 +902,185 @@ Rules for key terms:
             return finalChatResponse;
         },
 
-        makeParagraphs(transcript, maxLength = 1200) {
+        makeParagraphs(rawTranscript, maxLength = 1200, sentencesPerParagraph = 3) {
             console.log(`Starting paragraph creation with maxLength: ${maxLength}`);
-            const languageCode = franc(transcript);
-            console.log(`Detected language with franc library: ${languageCode}`);
+            this.logMemoryUsage('Start of makeParagraphs');
 
             // Normalize spaces in the input transcript
-            transcript = transcript.replace(/\s+/g, ' ').trim();
+            let transcript = rawTranscript.replace(/\s+/g, ' ').trim();
+            this.logMemoryUsage('After normalizing spaces');
 
-            // Set sentences per paragraph based on language
-            const sentencesPerParagraph = (languageCode === "cmn" || languageCode === "und") ? 3 : 3;
-            console.log(`Using ${sentencesPerParagraph} sentences per paragraph based on language detection`);
+            // Set sentences per paragraph
+            console.log(`Using ${sentencesPerParagraph} sentences per paragraph.`);
 
             try {
                 console.log(`Attempting to use Intl.Segmenter for sentence segmentation...`);
                 // Create a segmenter for sentences
                 const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
                 
-                // Get sentence segments and normalize spaces
-                const segments = Array.from(segmenter.segment(transcript));
-                const sentences = segments.map(segment => segment.segment.trim());
-                
-                console.log(`Intl.Segmenter successfully created ${sentences.length} sentence segments`);
-                console.log(`First few sentences for verification:`);
-                sentences.slice(0, 3).forEach((sentence, i) => {
-                    console.log(`Sentence ${i + 1}: ${sentence.substring(0, 100)}...`);
-                });
-
-                // Group sentences into paragraphs
-                const paragraphs = [];
-                for (let i = 0; i < sentences.length; i += sentencesPerParagraph) {
-                    paragraphs.push(sentences.slice(i, i + sentencesPerParagraph).join(' ').trim());
-                }
-
-                console.log(`Grouped sentences into ${paragraphs.length} initial paragraphs`);
-                console.log(`First paragraph for verification: ${paragraphs[0].substring(0, 100)}...`);
-                console.log(`Limiting paragraphs to ${maxLength} characters...`);
-
-                // Split paragraphs that exceed maxLength
-                const finalParagraphs = [];
+                // Process sentences directly into paragraphs without intermediate arrays
+                let paragraphs = [];
+                let currentSentenceGroup = [];
+                let currentParagraph = '';
                 let splitCount = 0;
-                for (const paragraph of paragraphs) {
-                    if (paragraph.length <= maxLength) {
-                        finalParagraphs.push(paragraph);
-                        continue;
-                    }
 
-                    console.log(`Paragraph exceeds maxLength (${paragraph.length} chars), splitting...`);
-                    splitCount++;
+                // Process sentences and build paragraphs in a streaming fashion
+                for (const segment of segmenter.segment(transcript)) {
+                    const sentence = segment.segment.trim();
+                    if (!sentence) continue;
 
-                    // Create a word segmenter for splitting long paragraphs
-                    const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
-                    const words = Array.from(wordSegmenter.segment(paragraph));
+                    currentSentenceGroup.push(sentence);
                     
-                    console.log(`Split paragraph into ${words.length} words`);
-                    let currentChunk = '';
-                    let chunkCount = 0;
-                    
-                    for (const word of words) {
-                        const wordSegment = word.segment.trim();
-                        // Skip empty segments
-                        if (!wordSegment) continue;
+                    if (currentSentenceGroup.length === sentencesPerParagraph) {
+                        currentParagraph = currentSentenceGroup.join(' ').trim();
                         
-                        // Check if the segment is punctuation
-                        const isPunctuation = /^[.,!?;:()\-–—]$/.test(wordSegment);
-                        
-                        if (currentChunk.length + wordSegment.length + (isPunctuation ? 0 : 1) <= maxLength) {
-                            // For punctuation, don't add a space before it
-                            if (isPunctuation) {
-                                currentChunk += wordSegment;
-                            } else {
-                                currentChunk += (currentChunk ? ' ' : '') + wordSegment;
-                            }
+                        // Handle paragraphs that exceed maxLength
+                        if (currentParagraph.length <= maxLength) {
+                            paragraphs.push(currentParagraph);
                         } else {
-                            if (currentChunk) {
-                                finalParagraphs.push(currentChunk.trim());
-                                chunkCount++;
-                            }
-                            currentChunk = wordSegment;
-                        }
-                    }
-                    if (currentChunk) {
-                        finalParagraphs.push(currentChunk.trim());
-                        chunkCount++;
-                    }
-                    console.log(`Split paragraph into ${chunkCount} chunks`);
-                }
+                            console.log(`Paragraph exceeds maxLength (${currentParagraph.length} chars), splitting...`);
+                            splitCount++;
 
-                console.log(`Total paragraphs split: ${splitCount}`);
-                console.log(`Final paragraph count: ${finalParagraphs.length}`);
-                console.log(`First few final paragraphs for verification:`);
-                finalParagraphs.slice(0, 3).forEach((para, i) => {
-                    console.log(`Paragraph ${i + 1} (${para.length} chars): ${para.substring(0, 100)}...`);
-                });
-
-                return finalParagraphs;
-            } catch (error) {
-                console.log(`Intl.Segmenter failed, falling back to natural.SentenceTokenizer: ${error.message}`);
-                console.log(`Error details:`, error);
-                
-                // Fallback to original implementation
-                let transcriptSentences;
-                if (languageCode === "cmn" || languageCode === "und") {
-                    console.log(`Detected language is Chinese or undetermined, splitting by punctuation...`);
-                    transcriptSentences = transcript
-                        .split(/[\u3002\uff1f\uff01\uff1b\uff1a\u201c\u201d\u2018\u2019]/)
-                        .map(s => s.trim())
-                        .filter(Boolean);
-                    console.log(`Split Chinese text into ${transcriptSentences.length} sentences using punctuation`);
-                } else {
-                    console.log(`Detected language is not Chinese, splitting by sentence tokenizer...`);
-                    const tokenizer = new natural.SentenceTokenizer();
-                    transcriptSentences = tokenizer.tokenize(transcript).map(s => s.trim());
-                    console.log(`Split text into ${transcriptSentences.length} sentences using natural.SentenceTokenizer`);
-                }
-
-                console.log(`First few sentences for verification:`);
-                transcriptSentences.slice(0, 3).forEach((sentence, i) => {
-                    console.log(`Sentence ${i + 1}: ${sentence.substring(0, 100)}...`);
-                });
-
-                function sentenceGrouper(arr, sentencesPerParagraph) {
-                    console.log(`Grouping ${arr.length} sentences into paragraphs of ${sentencesPerParagraph} sentences each`);
-                    const newArray = [];
-                    for (let i = 0; i < arr.length; i += sentencesPerParagraph) {
-                        newArray.push(arr.slice(i, i + sentencesPerParagraph).join(" ").trim());
-                    }
-                    console.log(`Created ${newArray.length} initial paragraphs`);
-                    return newArray;
-                }
-
-                function charMaxChecker(arr, maxSize) {
-                    console.log(`Checking character limits for ${arr.length} paragraphs (max: ${maxSize} chars)`);
-                    const hardLimit = 1800;
-                    console.log(`Using hard limit of ${hardLimit} characters`);
-                    
-                    const result = arr
-                        .map((element, index) => {
-                            console.log(`Processing paragraph ${index + 1} (${element.length} chars)`);
-                            let chunks = [];
-                            let currentIndex = 0;
+                            // Create a word segmenter for splitting long paragraphs
+                            const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+                            let currentChunk = '';
                             let chunkCount = 0;
 
-                            while (currentIndex < element.length) {
-                                let nextCutIndex = Math.min(currentIndex + maxSize, element.length);
-                                let nextSpaceIndex = element.indexOf(" ", nextCutIndex);
+                            // Process words directly without creating an intermediate array
+                            for (const word of wordSegmenter.segment(currentParagraph)) {
+                                const wordSegment = word.segment.trim();
+                                if (!wordSegment) continue;
 
-                                if (nextSpaceIndex === -1 || nextSpaceIndex - currentIndex > hardLimit) {
-                                    console.log(`No space found or hard limit reached in paragraph ${index + 1}, splitting at ${nextCutIndex}`);
-                                    nextSpaceIndex = nextCutIndex;
+                                const isPunctuation = /^[.,!?;:()\-–—]$/.test(wordSegment);
+                                
+                                if (currentChunk.length + wordSegment.length + (isPunctuation ? 0 : 1) <= maxLength) {
+                                    currentChunk += (isPunctuation ? '' : (currentChunk ? ' ' : '')) + wordSegment;
+                                } else {
+                                    if (currentChunk) {
+                                        paragraphs.push(currentChunk.trim());
+                                        chunkCount++;
+                                    }
+                                    currentChunk = wordSegment;
                                 }
-
-                                while (
-                                    nextSpaceIndex > 0 &&
-                                    isHighSurrogate(element.charCodeAt(nextSpaceIndex - 1))
-                                ) {
-                                    nextSpaceIndex--;
-                                }
-
-                                chunks.push(element.substring(currentIndex, nextSpaceIndex).trim());
-                                chunkCount++;
-                                currentIndex = nextSpaceIndex + 1;
                             }
 
-                            console.log(`Split paragraph ${index + 1} into ${chunkCount} chunks`);
-                            return chunks;
-                        })
-                        .flat();
+                            if (currentChunk) {
+                                paragraphs.push(currentChunk.trim());
+                                chunkCount++;
+                            }
+                            console.log(`Split paragraph into ${chunkCount} chunks`);
+                        }
 
-                    console.log(`Final paragraph count after character limit check: ${result.length}`);
-                    return result;
+                        currentSentenceGroup = [];
+                        currentParagraph = '';
+                    }
                 }
 
-                function isHighSurrogate(charCode) {
-                    return charCode >= 0xd800 && charCode <= 0xdbff;
+                // Handle any remaining sentences
+                if (currentSentenceGroup.length > 0) {
+                    currentParagraph = currentSentenceGroup.join(' ').trim();
+                    if (currentParagraph.length <= maxLength) {
+                        paragraphs.push(currentParagraph);
+                    } else {
+                        console.log(`Final paragraph exceeds maxLength (${currentParagraph.length} chars), splitting...`);
+                        splitCount++;
+
+                        const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+                        let currentChunk = '';
+                        let chunkCount = 0;
+
+                        for (const word of wordSegmenter.segment(currentParagraph)) {
+                            const wordSegment = word.segment.trim();
+                            if (!wordSegment) continue;
+
+                            const isPunctuation = /^[.,!?;:()\-–—]$/.test(wordSegment);
+                            
+                            if (currentChunk.length + wordSegment.length + (isPunctuation ? 0 : 1) <= maxLength) {
+                                currentChunk += (isPunctuation ? '' : (currentChunk ? ' ' : '')) + wordSegment;
+                            } else {
+                                if (currentChunk) {
+                                    paragraphs.push(currentChunk.trim());
+                                    chunkCount++;
+                                }
+                                currentChunk = wordSegment;
+                            }
+                        }
+
+                        if (currentChunk) {
+                            paragraphs.push(currentChunk.trim());
+                            chunkCount++;
+                        }
+                        console.log(`Split final paragraph into ${chunkCount} chunks`);
+                    }
                 }
 
-                const paragraphs = sentenceGrouper(transcriptSentences, sentencesPerParagraph);
-                const finalParagraphs = charMaxChecker(paragraphs, maxLength);
-                
-                console.log(`Fallback method completed. Final paragraph count: ${finalParagraphs.length}`);
+                // Clean up variables
+                transcript = null;
+                currentSentenceGroup = null;
+                currentParagraph = null;
+                this.logMemoryUsage('After processing all paragraphs');
+
+                console.log(`Total paragraphs split: ${splitCount}`);
+                console.log(`Final paragraph count: ${paragraphs.length}`);
                 console.log(`First few final paragraphs for verification:`);
-                finalParagraphs.slice(0, 3).forEach((para, i) => {
+                paragraphs.slice(0, 3).forEach((para, i) => {
                     console.log(`Paragraph ${i + 1} (${para.length} chars): ${para.substring(0, 100)}...`);
                 });
+
+                return paragraphs;
+            } catch (error) {
+                console.log(`Intl.Segmenter failed. Splitting transcript into paragraphs based on periods and maxLength. Error: ${error.message}`);
+                console.log(`Error details:`, error);
+
+                let transcript = rawTranscript.replace(/\s+/g, ' ').trim();
+                let finalParagraphs = [];
+                let currentParagraph = '';
+                let sentenceCount = 0;
+
+                // Split into sentences first
+                const sentences = transcript.split(/(?<=[.!?])\s*/).filter(s => s.trim().length > 0);
+                
+                for (const sentence of sentences) {
+                    // If adding this sentence would exceed maxLength, start a new paragraph
+                    if (currentParagraph.length + sentence.length > maxLength) {
+                        if (currentParagraph) {
+                            finalParagraphs.push(currentParagraph.trim());
+                        }
+                        currentParagraph = sentence;
+                        sentenceCount = 1;
+                    } else {
+                        // If this is the first sentence in the paragraph
+                        if (sentenceCount === 0) {
+                            currentParagraph = sentence;
+                        } else {
+                            currentParagraph += ' ' + sentence;
+                        }
+                        sentenceCount++;
+                    }
+
+                    // If we've reached 3 sentences, start a new paragraph
+                    if (sentenceCount >= 3) {
+                        finalParagraphs.push(currentParagraph.trim());
+                        currentParagraph = '';
+                        sentenceCount = 0;
+                    }
+                }
+
+                // Add any remaining text
+                if (currentParagraph) {
+                    finalParagraphs.push(currentParagraph.trim());
+                }
+
+                // If no paragraphs were created (no periods found), fall back to simple maxLength split
+                if (finalParagraphs.length === 0) {
+                    console.log('No periods found in transcript. Falling back to simple maxLength split.');
+                    for (let i = 0; i < transcript.length; i += maxLength) {
+                        finalParagraphs.push(transcript.substring(i, i + maxLength));
+                    }
+                }
+
+                this.logMemoryUsage('After creating finalParagraphs');
+                console.log(`Created ${finalParagraphs.length} paragraphs in fallback mode`);
 
                 return finalParagraphs;
             }

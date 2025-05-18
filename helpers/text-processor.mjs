@@ -1,5 +1,3 @@
-import { encode } from "gpt-3-encoder"; // GPT-3 encoder for ChatGPT-specific tokenization
-
 export default {
     methods: {
         /**
@@ -84,42 +82,6 @@ export default {
         startsWithLowerCase(text) {
             return text.length > 0 && text[0] === text[0].toLowerCase();
         },
-        findLongestPeriodGap(text, maxTokens) {
-			let lastPeriodIndex = -1;
-			let longestGap = 0;
-			let longestGapText = "";
-
-			for (let i = 0; i < text.length; i++) {
-				if (text[i] === ".") {
-					if (lastPeriodIndex === -1) {
-						lastPeriodIndex = i;
-						continue;
-					}
-
-					let gap = i - lastPeriodIndex - 1;
-					let gapText = text.substring(lastPeriodIndex + 1, i);
-
-					if (gap > longestGap) {
-						longestGap = gap;
-						longestGapText = gapText;
-					}
-
-					lastPeriodIndex = i;
-				}
-			}
-
-			if (lastPeriodIndex === -1) {
-				return { longestGap: -1, longestGapText: "No period found" };
-			} else {
-				const encodedLongestGapText = encode(longestGapText);
-				return {
-					longestGap,
-					longestGapText,
-					maxTokens,
-					encodedGapLength: encodedLongestGapText.length,
-				};
-			}
-		},
 
         /**
          * Combines VTT objects from transcript chunks into a single coherent VTT file

@@ -32,7 +32,7 @@ export default {
 
         async earlyTermination() {
             const TIMEOUT_SECONDS = this.timeout_seconds;
-            const EARLY_TERMINATION_SECONDS = 3; // 3 seconds before timeout
+            const EARLY_TERMINATION_SECONDS = 2; // 2 seconds before timeout
             const elapsedSeconds = (Date.now() - this.start_time) / 1000;
             
             if (elapsedSeconds >= TIMEOUT_SECONDS) {
