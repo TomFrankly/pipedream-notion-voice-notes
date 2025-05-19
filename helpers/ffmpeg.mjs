@@ -68,18 +68,68 @@ export default {
         },
 
         async getDuration(filePath) {
+
             try {
-                const dataPack = await parseFile(filePath, {
-                    duration: true,
-                    skipCovers: true
-                });
-                
-                const duration = Math.round(dataPack.format.duration);
-                console.log(`Successfully got duration with music-metadata: ${duration} seconds`);
-                return duration;
-                
+                try {
+                    console.log(`Attempting to get duration with music-metadata for: ${filePath}`);
+                    const dataPack = await parseFile(filePath, {
+                        duration: true,
+                        skipCovers: true
+                    });
+                    
+                    if (dataPack && dataPack.format && typeof dataPack.format.duration === 'number') {
+                        const duration = Math.round(dataPack.format.duration);
+                        if (duration > 0) {
+                            console.log(`Successfully got duration with music-metadata: ${duration} seconds`);
+                            return duration;
+                        } else {
+                            console.warn(`music-metadata returned duration 0 or negative (${duration}s) for ${filePath}. Will attempt ffmpeg.`);
+                            throw new Error(`music-metadata returned invalid duration: ${duration}`);
+                        }
+                    } else {
+                        console.warn(`music-metadata did not return a valid duration object for ${filePath}. Will attempt ffmpeg.`);
+                        throw new Error("music-metadata failed to provide a valid duration object.");
+                    }
+
+                } catch (musicMetadataError) {
+                    console.warn(`music-metadata failed: ${musicMetadataError.message}. Falling back to ffmpeg...`);
+                    
+                    const ffmpegBinaryPath = ffmpegInstaller.path;
+
+                    const command = `"${ffmpegBinaryPath}" -v error -nostdin -i "${filePath}" -f null - 2>&1`;
+                    console.log(`Attempting to get duration with ffmpeg command: ${command}`);
+                    
+                    const { stdout, stderr } = await execAsync(command);
+
+                    const outputToParse = stdout || stderr || "";
+
+                    const durationMatch = outputToParse.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+                    
+                    if (!durationMatch) {
+                        console.error(`Could not find or parse duration in ffmpeg output. Full output received: ${outputToParse.substring(0,1500)}`);
+                        throw new Error('Could not find DURATION in ffmpeg output. Ensure ffmpeg is working and file is valid.');
+                    }
+                    
+                    const hours = parseInt(durationMatch[1], 10);
+                    const minutes = parseInt(durationMatch[2], 10);
+                    const seconds = parseInt(durationMatch[3], 10);
+                    const centiseconds = parseInt(durationMatch[4], 10);
+
+                    const totalSeconds = (hours * 3600) + (minutes * 60) + seconds + (centiseconds / 100);
+                    
+                    if (totalSeconds > 0) {
+                        const roundedDuration = Math.round(totalSeconds);
+                        console.log(`Successfully got duration with ffmpeg: ${roundedDuration} seconds (from ${totalSeconds.toFixed(2)}s)`);
+                        return roundedDuration;
+                    } else {
+                        console.error(`ffmpeg parsed duration as 0 or negative (${totalSeconds.toFixed(2)}s). File might be empty or invalid.`);
+                        throw new Error(`ffmpeg returned invalid duration: ${totalSeconds.toFixed(2)}s`);
+                    }
+                }
             } catch (error) {
-                throw new Error(`Failed to get the duration of the audio file, which is required for this workflow. The file format might be unsupported or corrupted, or the file might no longer exist at the specified file path (which is in temp storage). Before re-testing this step, please re-test your 'download' step again in order to re-download the file into temp storage. Then test this step again. Learn more here: https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/#error-failed-to-read-audio-file-metadata`);
+                console.error(`Ultimately failed to get duration for ${filePath}. Last error: ${error.message}`);
+
+                throw new Error(`Failed to get the duration of the audio file, which is required for this workflow. Both music-metadata and ffmpeg attempts failed. Last error: ${error.message}. File: ${filePath}. Please check file integrity, format, and ensure it's accessible.`);
             }
         },
         
@@ -92,16 +142,13 @@ export default {
         },
 
         calculateSegmentTime(fileSize, duration) {
-            // Check for invalid duration
             if (!duration || duration <= 0) {
                 console.warn('Invalid duration detected (0 or negative). Returning duration to create single chunk.');
                 return duration || 0;
             }
 
-            // Convert file size to bytes if it's not already
             const fileSizeInBytes = typeof fileSize === 'number' ? fileSize : parseInt(fileSize);
             
-            // Calculate average bitrate in bits per second
             const bitrate = (fileSizeInBytes * 8) / duration;
             
             if (!this.chunk_size) {
@@ -110,35 +157,37 @@ export default {
             
             const targetChunkSizeBytes = this.chunk_size * 1024 * 1024;
             
-            // Calculate initial segment time based on target chunk size
             let segmentTime = Math.ceil((targetChunkSizeBytes * 8) / bitrate);
             
-            // Calculate number of full chunks and duration of last chunk
+            const MAX_SEGMENT_TIME = 600;
+            if (segmentTime > MAX_SEGMENT_TIME) {
+                const numChunksWithMax = Math.ceil(duration / MAX_SEGMENT_TIME);
+                const lastChunkWithMax = duration - (Math.floor(duration / MAX_SEGMENT_TIME) * MAX_SEGMENT_TIME);
+                
+                if (lastChunkWithMax < 30 && numChunksWithMax > 1) {
+                    segmentTime = Math.ceil(duration / (numChunksWithMax - 1));
+                } else {
+                    segmentTime = MAX_SEGMENT_TIME;
+                }
+            }
+            
             const numFullChunks = Math.floor(duration / segmentTime);
             const lastChunkDuration = duration - (numFullChunks * segmentTime);
             
-            // If last chunk would be too small (less than 30 seconds) and we have more than one chunk
             if (lastChunkDuration < 30 && numFullChunks > 0) {
-                // Option A: Increase segment time to merge the last chunk
-                // This will make all chunks slightly larger but avoid a tiny last chunk
                 segmentTime = Math.ceil(duration / numFullChunks);
                 
-                // Verify that the new segment time won't result in chunks that are too large
                 const estimatedChunkSize = (segmentTime * bitrate) / 8;
-                if (estimatedChunkSize > 25 * 1024 * 1024) { // If chunks would be over 25MB
-                    // Option B: Reduce segment time to create more chunks
+                if (estimatedChunkSize > 25 * 1024 * 1024) {
                     segmentTime = Math.ceil(duration / (numFullChunks + 1));
                 }
             }
             
-            // If segment time is equal to or greater than duration, return duration
-            // This indicates we should not split the file
             if (segmentTime >= duration) {
                 console.log(`File will not be split (segment time ${this.formatDuration(segmentTime)} >= duration ${this.formatDuration(duration)})`);
                 return duration;
             }
             
-            // Calculate final number of chunks
             const totalChunks = Math.ceil(duration / segmentTime);
             console.log(`File will be split into ${totalChunks} chunks with segment time ${this.formatDuration(segmentTime)}`);
             
@@ -172,21 +221,17 @@ export default {
 
                 console.log(`Chunking file: ${file}`);
 
-                // Get chunk size from this.chunk_size or use default
-                const chunkSize = this.chunk_size || 24; // Default to 24MB if not set
+                const chunkSize = this.chunk_size || 24;
                 
                 let fileSizeInMB = this.file_size / (1024 * 1024);
                 console.log(`Full file size: ${fileSizeInMB.toFixed(2)}MB. Target chunk size: ${chunkSize}MB. Commencing chunking...`);
 
-                // Calculate segment time using our new function
                 const segmentTime = this.calculateSegmentTime(this.file_size, this.duration);
 
-                // If segment time equals duration, we don't need to split the file
                 if (segmentTime === this.duration) {
                     try {
                         await execAsync(`cp "${file}" "${outputDir}/chunk-000${extname(file)}"`);
                         console.log(`Created 1 chunk: ${outputDir}/chunk-000${extname(file)}`);
-                        // Clean up original file immediately after copying
                         try {
                             await fs.promises.unlink(file);
                             console.log('Original file cleaned up after copying');
@@ -203,7 +248,6 @@ export default {
                     }
                 }
                 
-                // Use spawn for the chunking operation with optimized memory settings
                 const chunkFile = () => {
                     return new Promise((resolve, reject) => {
                         this.logMemoryUsage('Start of chunking operation');
@@ -212,7 +256,6 @@ export default {
                         let lastChunkTime = startTime;
                         let chunkCount = 0;
 
-                        // Modified args
                         const args = [
                             '-hide_banner', '-loglevel', 'info', '-y',
                             '-analyzeduration', '0',
@@ -238,23 +281,8 @@ export default {
                             }
                         };
                         
-                        // Monitor memory usage and timeout
                         const checkInterval = setInterval(async () => {
                             this.logMemoryUsage('During chunking');
-                            
-                            // Add memory pressure check
-                            const usage = process.memoryUsage();
-                            const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
-                            const rssMB = Math.round(usage.rss / 1024 / 1024);
-                            
-                            // If memory usage is too high, force cleanup
-                            // if (heapUsedMB > 150 || rssMB > 500) {  // Adjust these thresholds based on your needs
-                            //     console.warn(`High memory usage detected: Heap=${heapUsedMB}MB, RSS=${rssMB}MB. Forcing cleanup...`);
-                            //     clearInterval(checkInterval);
-                            //     cleanup();
-                            //     reject(new Error('Chunking process terminated due to high memory usage'));
-                            //     return;
-                            // }
                             
                             if (await this.earlyTermination()) {
                                 clearInterval(checkInterval);
@@ -262,7 +290,7 @@ export default {
                                 reject(new Error('Chunking process terminated due to timeout'));
                                 return;
                             }
-                        }, 2000); // Check every 2 seconds instead of 5
+                        }, 2000);
                         
                         let errorOutput = '';
                         let stdoutOutput = '';
@@ -270,7 +298,6 @@ export default {
                         ffmpeg.stderr.on('data', (data) => {
                             const chunk = data.toString();
                             errorOutput += chunk;
-                            // Check for chunk creation messages
                             if (chunk.includes('Opening') && chunk.includes('chunk-')) {
                                 const currentTime = Date.now();
                                 const chunkDuration = (currentTime - lastChunkTime) / 1000;
@@ -313,7 +340,6 @@ export default {
                 
                 await chunkFile();
 
-                // Clean up original file immediately after chunking
                 try {
                     await fs.promises.unlink(file);
                     console.log('Original file cleaned up after chunking');
@@ -352,7 +378,6 @@ export default {
                 const originalSize = fs.statSync(file).size / (1024 * 1024);
                 console.log(`Original file size: ${originalSize.toFixed(2)}MB`);
                 
-                // Create a temporary directory for the downsampled file
                 const downsampledDir = join("/tmp", "downsampled-" + this.steps.trigger.context.id);
                 try {
                     await execAsync(`mkdir -p "${downsampledDir}"`);
@@ -360,19 +385,17 @@ export default {
                     throw new Error(`Failed to create downsampled directory: ${error.message}`);
                 }
                 
-                // Generate output path with M4A extension (better compression than FLAC for speech)
                 const outputPath = join(downsampledDir, "downsampled.m4a");
                 
                 try {
-                    // Use spawn for the downsampling operation
                     const downsampleFile = () => {
                         return new Promise((resolve, reject) => {
                             const args = [
                                 '-i', file,
-                                '-ar', '16000',     // Set sample rate to 16kHz
-                                '-ac', '1',         // Convert to mono
-                                '-c:a', 'aac',      // Use AAC codec
-                                '-b:a', '32k',      // Set bitrate to 32kbps (very low, but sufficient for speech)
+                                '-ar', '16000',
+                                '-ac', '1',
+                                '-c:a', 'aac',
+                                '-b:a', '32k',
                                 '-loglevel', 'verbose',
                                 outputPath
                             ];
@@ -399,7 +422,6 @@ export default {
                             ffmpeg.stderr.on('data', async (data) => {
                                 const chunk = data.toString();
                                 stderrData += chunk;
-                                // Only log important messages to avoid excessive output
                                 if (chunk.includes('Opening') || chunk.includes('Output') || chunk.includes('Error')) {
                                     console.log(`ffmpeg stderr: ${chunk}`);
                                 }

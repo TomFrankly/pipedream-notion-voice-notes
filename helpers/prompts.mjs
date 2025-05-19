@@ -2,21 +2,26 @@ import lang from "./languages.mjs";
 
 export default {
     methods: {
-        createPrompt(arr, date) {
-			return `
-		
-		The current date and time is ${date}.
-		
-		Transcript:
-		
-		${arr}`;
+        createPrompt(arr, date, custom_prompt = "") {
+			let prompt = `The current date and time is ${date}.`;
+
+			if (custom_prompt && custom_prompt !== "") {
+				prompt += `\n\nUser's custom prompt:\n\n${custom_prompt}`;
+			}
+
+			prompt += `\n\nTranscript:
+			
+			${arr}`;
+			
+			return prompt;
 		},
 		createSystemMessage(
 			index,
 			summary_options,
 			summary_verbosity,
 			summary_language,
-			totalChunks
+			totalChunks,
+			previousContext = ""
 		) {
 			const prompt = {};
 
@@ -63,7 +68,11 @@ export default {
 					chunkContext = `You are writing a summary of a transcript that has ${totalChunks} parts. This is the first chunk of the transcript.`
 				}
 			} else {
-				chunkContext = `You are writing a summary of a transcript has multiple parts. This is the ${index + 1} of ${totalChunks} chunks. Focus on the content of this chunk, but be aware that your goal is to extract information from this chunk that will be used to create a summary of the entire transcript.`	
+				chunkContext = `You are writing a summary of a transcript has multiple parts. This is the ${index + 1} of ${totalChunks} chunks. Focus on the content of this chunk, but be aware that your goal is to extract information from this chunk that will be used to create a summary of the entire transcript.`
+
+				if (previousContext && previousContext !== "") {
+					chunkContext += `\n\n-------------\n\nHere is the summary of the first chunk of the transcript. Use this as context for your summary of this chunk:\n\n${previousContext}\n\n-------------\n\n`;
+				}
 			}
 
 			prompt.base = `You are an assistant that summarizes voice notes, podcasts, lecture recordings, and other audio recordings that primarily involve human speech. You only write valid JSON. Do not write backticks or code blocks. Only write valid JSON.${

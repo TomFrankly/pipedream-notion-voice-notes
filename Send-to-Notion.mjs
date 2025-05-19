@@ -1,5 +1,6 @@
 import { Client } from "@notionhq/client"; // Notion SDK
 import { createPage, createNotion } from "notion-helper"; // Notion helper
+import {markdownToBlocks} from '@tryfabric/martian'; // Markdown to Notion blocks
 
 import EMOJI from "./helpers/emoji.mjs"; // Emoji list
 
@@ -8,7 +9,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.44",
+    version: "0.0.48",
     props: {
         instructions: {
             type: "alert",
@@ -279,6 +280,22 @@ Finally, select the sections you'd like to include in your note and configure th
                         .map((prop) => ({ label: prop, value: prop })),
                     optional: true,
                 },
+                customSection: {
+                    type: "string",
+                    label: "Custom Section",
+                    description: "If you've used the Custom Section Prompt option in the Transcribe and Summarize step, you can link it here.\n\nClick the field, click **Enter a Custom Expression**, then find steps → Transcribe_Summarize → custom_prompt.\n\nAlternatively, you can reference a variable from any other custom step you've added. **The variable's content must be a string containing plain text or Markdown text**.",
+                    optional: true,
+                    reloadProps: true,
+                },
+                ...(this.customSection && {
+                    customSectionTitle: {
+                        type: "string",
+                        label: "Custom Section Title",
+                        description: "Set a title for your custom section. Defaults to 'Custom Section'.",
+                        default: "Custom Section",
+                        optional: true,
+                    },
+                }),
                 toggleHeaders: {
                     type: "string[]",
                     label: "Use Toggle Headers",
@@ -331,6 +348,10 @@ Finally, select the sections you'd like to include in your note and configure th
                         {
                             label: "Chapters",
                             value: "chapters",
+                        },
+                        {
+                            label: "Custom Section",
+                            value: "custom_section",
                         }
                     ],
                     optional: true,
@@ -378,7 +399,7 @@ Finally, select the sections you'd like to include in your note and configure th
                 sectionOrder: {
                     type: "object",
                     label: "Section Order",
-                    description: `If set, the order of the sections in the note will be as specified in the object. Keys must be the section names, and must match the section names shown below. Values must be the section order number, starting with 1. Defaults to the canonical order of sections, which is the following:\n* summary\n* transcript\n* original_language_transcript\n* vtt\n* main_points\n* action_items\n* follow_up\n* stories\n* references\n* arguments\n* related_topics\n* chapters`,
+                    description: `If set, the order of the sections in the note will be as specified in the object. Keys must be the section names, and must match the section names shown below. Values must be the section order number, starting with 1. Defaults to the canonical order of sections, which is the following:\n* summary\n* transcript\n* original_language_transcript\n* vtt\n* main_points\n* action_items\n* follow_up\n* stories\n* references\n* arguments\n* related_topics\n* chapters\n* custom_section`,
                     optional: true,
                     hidden: !this.giveMeMoreControl,
                     disabled: !this.giveMeMoreControl
@@ -450,6 +471,10 @@ Finally, select the sections you'd like to include in your note and configure th
         console.log(`Note duration: ${this.noteDuration}`)
         console.log(`Note tag: ${this.noteTag}`)
         console.log(`Note tag value: ${this.noteTagValue}`)
+        console.log(`Note file name: ${this.noteFileName}`)
+        console.log(`Note file link: ${this.noteFileLink}`)
+        console.log(`Custom section: ${this.customSection}`)
+        console.log(`Custom section title: ${this.customSectionTitle}`)
 
         console.log(`Additional settings:`)
         console.log(`Included sections: ${this.includedSections}`)
@@ -489,6 +514,11 @@ Finally, select the sections you'd like to include in your note and configure th
         
         // Get the "Transcribe and Summarize" step's "$return_value" object
         const fileInfo = this.steps.Transcribe_Summarize.$return_value;
+
+        // If customSection is set, add it to the page content
+        if (this.customSection) {
+            fileInfo.page_content.custom_section = markdownToBlocks(this.customSection);
+        }
 
         // Set up our Notion data
         let notionData = {}
@@ -553,7 +583,8 @@ Finally, select the sections you'd like to include in your note and configure th
             references: 9,
             arguments: 10,
             related_topics: 11,
-            chapters: 12
+            chapters: 12,
+            custom_section: 13
         };
 
         // Check if user has provided a custom section order
@@ -637,6 +668,23 @@ Finally, select the sections you'd like to include in your note and configure th
                     }
                 });
 
+                // After resolving conflicts, ensure all sections have unique order numbers
+                const usedOrders = new Set();
+                Object.entries(customOrder).forEach(([section, order]) => {
+                    if (usedOrders.has(order)) {
+                        // Find the next available order number
+                        let nextOrder = order + 1;
+                        while (usedOrders.has(nextOrder)) {
+                            nextOrder++;
+                        }
+                        console.log(`Adjusting section ${section} from ${order} to ${nextOrder} to ensure unique order`);
+                        customOrder[section] = nextOrder;
+                        usedOrders.add(nextOrder);
+                    } else {
+                        usedOrders.add(order);
+                    }
+                });
+
                 console.log('Processed section order:', customOrder);
                 
                 // Create array of [section, order] pairs and sort by order number
@@ -651,6 +699,11 @@ Finally, select the sections you'd like to include in your note and configure th
         } catch (error) {
             console.error('Error processing custom section order:', error);
             console.log('Falling back to default section order');
+        }
+
+        // If customSection is set, add it to includedSections
+        if (this.customSection) {
+            this.includedSections.push("custom_section");
         }
 
         // Create orderedSections: only those selected by the user, in canonical order
@@ -718,7 +771,7 @@ Finally, select the sections you'd like to include in your note and configure th
                 notionData.page_content.timestamped_transcript = this.createCompressedTranscript(notionData.page_content.timestamped_transcript);
 
                 const compressedBlockCount = notionData.page_content.timestamped_transcript.length;
-                console.log(`Compressed ${uncompressedBlockCount} blocks in the Timestamped Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`);
+                console.log(`Compressed ${uncompressedBlockCount} blocks in the Timestamped Transcript section to ${compressedBlockCount} blocks. Block reduction: ${((uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100).toFixed(2)}%`);
                 console.log(`Compressed timestamped transcript:`);
                 // Log the first element of the compressed array
                 console.log(notionData.page_content.timestamped_transcript[0]);
@@ -747,7 +800,7 @@ Finally, select the sections you'd like to include in your note and configure th
                     notionData.page_content.transcript = this.createCompressedTranscript(notionData.page_content.transcript);
 
                     const compressedBlockCount = notionData.page_content.transcript.length;
-                    console.log(`Compressed ${uncompressedBlockCount} blocks in the Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`);
+                    console.log(`Compressed ${uncompressedBlockCount} blocks in the Transcript section to ${compressedBlockCount} blocks. Block reduction: ${((uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100).toFixed(2)}%`);
                     console.log(`Compressed transcript:`);
                     // Log the first element of the compressed array
                     console.log(notionData.page_content.transcript[0]);
@@ -768,7 +821,7 @@ Finally, select the sections you'd like to include in your note and configure th
                     notionData.page_content.original_language_transcript = this.createCompressedTranscript(notionData.page_content.original_language_transcript);
 
                     const compressedBlockCount = notionData.page_content.original_language_transcript.length;
-                    console.log(`Compressed ${uncompressedBlockCount} blocks in the Original-Language Transcript section to ${compressedBlockCount} blocks. Block reduction: ${(uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100}%`);
+                    console.log(`Compressed ${uncompressedBlockCount} blocks in the Original-Language Transcript section to ${compressedBlockCount} blocks. Block reduction: ${((uncompressedBlockCount - compressedBlockCount) / uncompressedBlockCount * 100).toFixed(2)}%`);
                     console.log(`Compressed original language transcript:`);
                     console.log(notionData.page_content.original_language_transcript[0]);
                 } else {
@@ -781,9 +834,15 @@ Finally, select the sections you'd like to include in your note and configure th
 
         // For each key in notionData.page_content, add it to the page content
         Object.keys(notionData.page_content).forEach(key => {
-            // Creat the header text by capitalizing the first letter of each word in the key and replacing underscores with spaces
-            const headerText = key.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase());
+            let headerText = "";
 
+            if (key === "custom_section") {
+                headerText = this.customSectionTitle || "Custom Section";
+            } else {
+                // Create the header text by capitalizing the first letter of each word in the key and replacing underscores with spaces
+                headerText = key.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase());
+            }
+            
             // Determine if the header should be a toggle
             const isToggle = this.toggleHeaders && this.toggleHeaders.includes(key);
 
@@ -801,7 +860,16 @@ Finally, select the sections you'd like to include in your note and configure th
             const blockType = ["summary", "transcript", "original_language_transcript", "timestamped_transcript"].includes(key) ? "paragraph" : "bulleted_list_item";
 
             // Add the section content
-            page = page.loop(blockType, notionData.page_content[key]);
+            if (key === "custom_section") {
+                page = page.loop(
+                    (page, block) => {
+                        page = page.addExistingBlock(block);
+                    },
+                    notionData.page_content[key]
+                )
+            } else {
+                page = page.loop(blockType, notionData.page_content[key]);
+            }
 
             // Close the section header
             if (isToggle) {

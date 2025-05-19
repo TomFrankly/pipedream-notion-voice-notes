@@ -9,6 +9,12 @@ const execAsync = promisify(exec);
 
 export default {
     methods: {
+        async checkFileExists(filePath) {
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`Audio file does not exist at path: ${filePath}. If you're testing this workflow, it's likely that Pipedream has cleared your temporary storage directory. Please re-test your Download File step to re-download the file to temporary storage, then click CONTINUE from that step once the test is complete. Finally, test this step again.`);
+            }
+        },
+
         cleanupLargeObjects({object, objectName = 'unnamed', debug = false}) {
             if (!debug) {
                 const beforeMemory = process.memoryUsage().heapUsed;

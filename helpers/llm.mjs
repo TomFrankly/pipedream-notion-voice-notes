@@ -752,7 +752,6 @@ Rules for key terms:
             log_failure = (attempt, error, index) => `Attempt ${attempt} for chunk ${index} failed with error: ${error.message}. Retrying...`
         }) {
             try {
-                
                 let maxConcurrent;
                 let minTime;
                 
@@ -765,11 +764,8 @@ Rules for key terms:
                 } else if (this.ai_service === "groqcloud") {
                     maxConcurrent = 25;
                 } else if (this.ai_service === "cerebras") {
-                    // Cerebras has a rate limit of 30 RPM, but enforces it per second
-                    // We'll set maxConcurrent to 1 and minTime to 2000ms (2 seconds)
-                    // This ensures we stay well under their rate limits
                     maxConcurrent = 1;
-                    minTime = 2000; // 2 seconds between requests
+                    minTime = 2000;
                 }
                 
                 const limiter = new Bottleneck({
@@ -780,17 +776,47 @@ Rules for key terms:
                     reservoirRefreshInterval: this.ai_service === "cerebras" ? 60 * 1000 : 1000
                 });
 
-                console.log(`Sending ${stringsArray.length} chunks to ${service} with rate limiting: maxConcurrent=${maxConcurrent}, minTime=${minTime || 'default'}`);
+                // If we have multiple chunks, process the first one separately
+                let firstChunkResponse = null;
+                if (stringsArray.length > 1) {
+                    console.log(`Processing first chunk separately to establish context...`);
+                    const date = new Date().toLocaleString();
+                    const firstPrompt = this.createPrompt(stringsArray[0], date);
+                    const firstSystemMessage = this.createSystemMessage(0, this.summary_options, this.verbosity, this.translation_language, stringsArray.length);
+                    
+                    firstChunkResponse = await this.llmRequest({
+                        service: service,
+                        model: model,
+                        prompt: firstPrompt,
+                        systemMessage: firstSystemMessage,
+                        temperature: this.ai_temperature ? this.ai_temperature : 2,
+                        log_action: (attempt) => log_action(attempt, 0),
+                        log_success: log_success(0),
+                        log_failure: (attempt, error) => log_failure(attempt, error, 0)
+                    });
+
+                    console.log(`First chunk processed successfully. Using its summary for context in subsequent chunks.`);
+                }
+
+                // Process remaining chunks (or all chunks if there was only one)
+                const remainingChunks = stringsArray.length > 1 ? stringsArray.slice(1) : [];
+                console.log(`Sending ${remainingChunks.length} chunks to ${service} with rate limiting: maxConcurrent=${maxConcurrent}, minTime=${minTime || 'default'}`);
                 
                 const results = await limiter.schedule(() => {
-                    const tasks = stringsArray.map((text, index) => {
-                        
-                        // Get the current date and time as a string
+                    const tasks = remainingChunks.map((text, index) => {
+                        const actualIndex = stringsArray.length > 1 ? index + 1 : index;
                         const date = new Date().toLocaleString();
-                        
                         const prompt = this.createPrompt(text, date);
 
-                        const systemMessage = this.createSystemMessage(index, this.summary_options, this.verbosity, this.translation_language, stringsArray.length);
+                        // If we have a first chunk response, add its context to the system message
+                        let previousContext = "";
+                        if (firstChunkResponse) {
+                            const firstChunkContent = this.repairJSON(firstChunkResponse.content);
+                            previousContext = firstChunkContent.summary || "";
+                        }
+
+                        // Create base system message
+                        let systemMessage = this.createSystemMessage(actualIndex, this.summary_options, this.verbosity, this.translation_language, stringsArray.length, previousContext);
                         
                         return this.llmRequest({
                             service: service,
@@ -798,17 +824,93 @@ Rules for key terms:
                             prompt: prompt,
                             systemMessage: systemMessage,
                             temperature: this.ai_temperature ? this.ai_temperature : 2,
-                            log_action: (attempt) => log_action(attempt, index),
-                            log_success: log_success(index),
-                            log_failure: (attempt, error) => log_failure(attempt, error, index)
+                            log_action: (attempt) => log_action(attempt, actualIndex),
+                            log_success: log_success(actualIndex),
+                            log_failure: (attempt, error) => log_failure(attempt, error, actualIndex)
                         });
                     });
                     return Promise.all(tasks);
                 });
+
+                // If we processed the first chunk separately, add it to the results
+                if (firstChunkResponse) {
+                    return [firstChunkResponse, ...results];
+                }
+                
+                // If there was only one chunk, process it here
+                if (stringsArray.length === 1) {
+                    const date = new Date().toLocaleString();
+                    const prompt = this.createPrompt(stringsArray[0], date);
+                    const systemMessage = this.createSystemMessage(0, this.summary_options, this.verbosity, this.translation_language, stringsArray.length);
+                    
+                    const singleChunkResponse = await this.llmRequest({
+                        service: service,
+                        model: model,
+                        prompt: prompt,
+                        systemMessage: systemMessage,
+                        temperature: this.ai_temperature ? this.ai_temperature : 2,
+                        log_action: (attempt) => log_action(attempt, 0),
+                        log_success: log_success(0),
+                        log_failure: (attempt, error) => log_failure(attempt, error, 0)
+                    });
+                    
+                    return [singleChunkResponse];
+                }
+                
                 return results;
             } catch (error) {
                 console.error(error);
                 throw new Error(`An error occurred while sending the transcript to ${service}: ${error.message}`);
+            }
+        },
+
+        async sendToChatCustomPrompt({
+            service,
+            model,
+            transcript,
+            custom_prompt,
+            log_action = (attempt, index) => `Attempt ${attempt}: Sending transcript with custom prompt to ${service}`,
+            log_success = (index) => `Transcript with custom prompt received successfully.`,
+            log_failure = (attempt, error, index) => `Attempt ${attempt} for transcript with custom prompt failed with error: ${error.message}. Retrying...`
+        }) {
+            try {
+                const date = new Date().toLocaleString();
+                const prompt = this.createPrompt(transcript, date, custom_prompt);
+                const systemMessage = `You process the transcript in the the prompt according to the user's instructions. IMPORTANT: Respond only with the requested content in the custom prompt before the transcript. Do not add any preamble, introduction, or suffix to your response. Do not explain your response or add any notes. Return ONLY the requested content, nothing else.
+                
+Respond with a valid JSON object that contains a single 'markdown' property, which contains the entire requested content as a Markdown string.
+
+Example: If the first part of these system instructions read "Generate a blog post draft from the transcript", your response would be:
+{
+    "markdown": "## Blog Post Draft\n\nThis is a blog post draft generated from the transcript. It includes the main points, action items, and other relevant information from the transcript."
+}
+    
+ALLOWED MARKDOWN FORMATTING:
+- Headers (H1, H2, H3)
+- Paragraphs
+- Lists (Unordered, Ordered)
+- Bold, Italic, Underline
+- Blockquotes
+
+NO OTHER MARKDOWN FORMATTING IS ALLOWED.
+`;
+                
+                const response = await this.llmRequest({
+                    service: service,
+                    model: model,
+                    prompt: prompt,
+                    systemMessage: systemMessage,
+                    temperature: this.ai_temperature ? this.ai_temperature : 2,
+                    log_action: (attempt) => log_action(attempt, 0),
+                    log_success: log_success(0),
+                    log_failure: (attempt, error) => log_failure(attempt, error, 0)
+                });
+
+                const content = this.repairJSON(response.content);
+                return content.markdown;
+            } catch (error) {
+                console.warn(`Error sending transcript with custom prompt to ${service}: ${error.message}. Returning error string.`);
+                return "There was a problem generating the section from your custom prompt. See the Logs section of this Pipedream workflow run for more detail. Workflow is continuing in order to ensure you get the transcript and other requested sections."
             }
         },
 
@@ -824,8 +926,51 @@ Rules for key terms:
                 resultsArray.push(response);
             }
 
-            // Create a variable for the AI-generated title
-            const AI_generated_title = resultsArray[0]?.choice?.title;
+            // First collect all summaries
+            const allSummaries = resultsArray
+                .map(result => result.choice?.summary || "")
+                .filter(summary => summary)
+                .join(" ");
+
+            // Generate title using the entire summary
+            let AI_generated_title = resultsArray[0]?.choice?.title; // Fallback title
+            try {
+                if (allSummaries) {
+                    console.log("Generating title using complete summary...");
+                    const titleResponse = await this.llmRequest({
+                        service: this.ai_service,
+                        model: this.ai_model,
+                        prompt: allSummaries,
+                        systemMessage: `You are a title generation assistant. Your task is to create a concise, descriptive title (maximum 15 words) that captures the main theme or subject of the provided text.
+
+IMPORTANT: You must respond with a valid JSON object containing a single property:
+{
+    "title": "your generated title here"
+}
+
+Rules:
+- Do not add any preamble, introduction, or suffix to your response
+- Do not explain your title or add any notes
+- Return ONLY the JSON object, nothing else
+- Do not write backticks or code blocks
+- The title should be concise and descriptive (maximum 15 words)`,
+                        temperature: 1,
+                        log_action: (attempt) => `Attempt ${attempt}: Generating title from complete summary`,
+                        log_success: "Title generated successfully",
+                        log_failure: (attempt, error) => `Attempt ${attempt} for title generation failed: ${error.message}. Retrying...`
+                    });
+
+                    const titleContent = this.repairJSON(titleResponse.content);
+                    if (titleContent && titleContent.title) {
+                        AI_generated_title = titleContent.title.trim();
+                        console.log(`Title generated successfully: ${AI_generated_title}`);
+                    } else {
+                        console.error(`Invalid title response format. Using fallback title: ${AI_generated_title}`);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error generating title from complete summary: ${error.message}. Using fallback title: ${AI_generated_title}`);
+            }
 
             let chatResponse = resultsArray.reduce(
                 (acc, curr) => {

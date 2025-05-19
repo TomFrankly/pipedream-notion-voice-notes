@@ -1,9 +1,3 @@
-/**
- * To Do:
- * 
- * - Adjust target chunk size to target segment size
- */
-
 import fileSystem from "./helpers/file-system.mjs";
 import lang from "./helpers/languages.mjs";
 import transcribe from "./helpers/transcribe.mjs";
@@ -15,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.52",
+    version: "0.1.58",
     type: "action",
     props: {
         instructions: {
@@ -324,7 +318,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 props.chunk_size = {
                     type: "integer",
                     label: "Audio File Chunk Size",
-                    description: `By default, your audio file will be split into 10mb chunks before being sent to your chosen transcription service. This is done both to handle the max file size limits of some transcription services and to greatly speed up the transcription process, which reduces credit usage.\n\nYou can change the chunk size here to be anywhere between 4mb and 24mb.\n\n**Note:** Deepgram, AssemblyAI, Gemini, and ElevenLabs can accept larger files. You can set **Disable Chunking** to **True** below if you'd like to send the entire file at once – though this will only happen for files under a certain size, due to the low default RAM setting of Pipedream workflows.`,
+                    description: `By default, your audio file will be split into 10mb chunks before being sent to your chosen transcription service. This is done both to handle the max file size limits of some transcription services and to greatly speed up the transcription process, which reduces credit usage.\n\nYou can change the chunk size here to be anywhere between 4mb and 24mb; however, chunks will also be limited to 10 minutes in length.\n\n**Note:** Deepgram, AssemblyAI, Gemini, and ElevenLabs can accept larger files. You can set **Disable Chunking** to **True** below if you'd like to send the entire file at once.`,
                     optional: true,
                     min: 4,
                     max: 24,
@@ -364,7 +358,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 props.debug = {
                     type: "boolean",
                     label: "Enable Debug Mode",
-                    description: `When enabled, this will enable debug mode, which will cause this step to return the full JSON objects for each transcript and summary response.`,
+                    description: `When enabled, this will enable debug mode, which will cause this step to return the full JSON objects for each transcript and summary response.\n\nThis will increase workflow memory usage, so you should only use it when testing workflow steps manually. In Build mode, workflow steps have far more memory available than the default 256mb that deployed workflows have.`,
                     default: false,
                     optional: true,
                 };
@@ -453,6 +447,15 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                         hidden: false,
                         disabled: false
                     };
+
+                    props.custom_prompt = {
+                        type: "string",
+                        label: "Custom Section Prompt (Optional)",
+                        description: `If you'd like to generate a section not listed in the Summary Options, you can enter a custom prompt here.\n\n*Example: "Create a blog post draft from the transcript."*\n\nThis will be set as the system instructions for a prompt that will contain your *entire* transcript (unlike Summary Options, which run prompts on chunks of your transcript as defined by the Summary Density setting).\n\nThis prompt will return a **single Markdown string**, which you'll find in the \`custom_prompt\` property of this step's output.\n\nIn the \`Send to Notion\` step, you can choose whether or not to include this section.`,
+                        optional: true,
+                        hidden: false,
+                        disabled: false,
+                    }
 
                     if (this.advanced_options === true) {
                         
@@ -595,6 +598,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     props.summary_options.hidden = true;
                     props.summary_options.disabled = true;
                 }
+
+                if (props.custom_prompt) {
+                    props.custom_prompt.hidden = true;
+                    props.custom_prompt.disabled = true;
+                }
                 
                 if (props.advanced_options) {
                     props.advanced_options.hidden = false;
@@ -608,6 +616,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 if (props.summary_options) {
                     props.summary_options.hidden = true;
                     props.summary_options.disabled = true;
+                }
+                if (props.custom_prompt) {
+                    props.custom_prompt.hidden = true;
+                    props.custom_prompt.disabled = true;
                 }
                 if (props.advanced_options) {
                     props.advanced_options.hidden = true;
@@ -665,6 +677,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             cleanup: 0,
             translation: 0,
 			summary: 0,
+            custom_prompt: 0,
             total: 0
 		};
 
@@ -684,6 +697,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             transcription_model: this.transcription_model,
             ai_model: this.ai_model,
             summary_options: this.summary_options,
+            custom_prompt: this.custom_prompt,
             advanced_options: this.advanced_options,
             translation_language: this.translation_language,
             ai_cleanup: this.ai_cleanup,
@@ -959,6 +973,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 		this.filePath = fileInfo.metadata.path;
 		this.fileName = fileInfo.file_name;
 		this.fileLink = fileInfo.link;
+
+        await this.checkFileExists(this.filePath);
 
 		fileInfo.metadata.duration = await this.getDuration(fileInfo.metadata.path);
         fileInfo.metadata.duration_formatted = this.formatDuration(fileInfo.metadata.duration);
@@ -1247,6 +1263,36 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 return fileInfo;
             }
 
+            if (this.custom_prompt && this.custom_prompt !== "") {
+                
+                /* === CUSTOM PROMPT STAGE === */
+
+                console.log("=== CUSTOM PROMPT STAGE ===");
+
+                console.log(`Generating custom section with prompt: ${this.custom_prompt}`);
+
+                fileInfo.metadata.custom_prompt = await this.sendToChatCustomPrompt({
+                    service: this.ai_service,
+                    model: this.ai_model,
+                    transcript: fileInfo.full_transcript,
+                    custom_prompt: this.custom_prompt,
+                });
+
+                stageDurations.custom_prompt = Number(process.hrtime.bigint() - previousTime) / 1e6;
+                console.log(
+                    `Custom prompt stage duration: ${stageDurations.custom_prompt.toFixed(2)}ms (${
+                        (stageDurations.custom_prompt / 1000).toFixed(3)
+                    } seconds)`
+                );
+                console.log(
+                    `Total duration so far: ${totalDuration(stageDurations).toFixed(2)}ms (${
+                        (totalDuration(stageDurations) / 1000).toFixed(3)
+                    } seconds)`
+                );
+                previousTime = process.hrtime.bigint();
+                
+            }
+
             if (this.translation_language && this.translation_language !== "") {
                 
                 /* === TRANSLATION STAGE === */
@@ -1380,6 +1426,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         finalReturn.page_content = Object.fromEntries(
             Object.entries(fileInfo.final_results).filter(([key, value]) => value.length > 0)
         );
+
+        if (fileInfo.metadata.custom_prompt) {
+            finalReturn.custom_prompt = fileInfo.metadata.custom_prompt;
+        }
 
         finalReturn.other_data = {
             file_name: fileInfo.file_name,
