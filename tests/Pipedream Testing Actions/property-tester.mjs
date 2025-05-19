@@ -1,7 +1,7 @@
 import { Client } from "@notionhq/client";
-import common from "./helpers/common.mjs";
-import translation from "./helpers/translate-transcript.mjs";
-import openaiOptions from "./helpers/openai-options.mjs";
+import common from "../../helpers/common.mjs";
+import translation from "../../helpers/translate-transcript.mjs";
+import openaiOptions from "../../helpers/openai-options.mjs";
 
 export default {
     name: "Notion Voice Notes Property Test",

@@ -125,7 +125,7 @@ export default {
 							: summary_verbosity === "Medium"
 							? "3"
 							: "2";
-					prompt.follow_up = `Key "follow_up:" - add an array of follow-up questions. Limit each item to 100 words, and limit the list to ${verbosity} items.`;
+					prompt.follow_up = `Key "follow_up:" - add an array of follow-up questions. Limit each item to 200 words, and limit the list to ${verbosity} items.`;
 				}
 
 				if (this.summary_options.includes("Stories")) {
@@ -135,7 +135,7 @@ export default {
 							: summary_verbosity === "Medium"
 							? "3"
 							: "2";
-					prompt.stories = `Key "stories:" - add an array of an stories or examples found in the transcript. Limit each item to 200 words, and limit the list to ${verbosity} items.`;
+					prompt.stories = `Key "stories:" - add an array of an stories or examples found in the transcript. Limit each item to 300 words, and limit the list to ${verbosity} items.`;
 				}
 
 				if (this.summary_options.includes("References")) {
@@ -145,7 +145,7 @@ export default {
 							: summary_verbosity === "Medium"
 							? "3"
 							: "2";
-					prompt.references = `Key "references:" - add an array of references made to external works or data found in the transcript. Limit each item to 100 words, and limit the list to ${verbosity} items.`;
+					prompt.references = `Key "references:" - add an array of references made to external works or data found in the transcript. Limit each item to 200 words, and limit the list to ${verbosity} items.`;
 				}
 
 				if (this.summary_options.includes("Arguments")) {
@@ -155,7 +155,17 @@ export default {
 							: summary_verbosity === "Medium"
 							? "3"
 							: "2";
-					prompt.arguments = `Key "arguments:" - add an array of potential arguments against the transcript. Limit each item to 100 words, and limit the list to ${verbosity} items.`;
+					prompt.arguments = `Key "arguments:" - add an array of potential arguments against the transcript. Limit each item to 200 words, and limit the list to ${verbosity} items.`;
+				}
+
+				if (this.summary_options.includes("Jokes")) {
+					const verbosity =
+						summary_verbosity === "High"
+							? "5"
+							: summary_verbosity === "Medium"
+							? "3"
+							: "2";
+					prompt.jokes = `Key "jokes:" - add an array of jokes found in the transcript. Limit the list to ${verbosity} items.`;
 				}
 
 				if (this.summary_options.includes("Related Topics")) {

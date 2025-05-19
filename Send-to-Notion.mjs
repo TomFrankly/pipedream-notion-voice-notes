@@ -9,7 +9,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.48",
+    version: "0.0.49",
     props: {
         instructions: {
             type: "alert",
@@ -86,6 +86,10 @@ Finally, select the sections you'd like to include in your note and configure th
                 {   
                     label: "Arguments",
                     value: "arguments",
+                },
+                {
+                    label: "Jokes",
+                    value: "jokes",
                 },
                 {
                     label: "Related Topics",
@@ -342,6 +346,10 @@ Finally, select the sections you'd like to include in your note and configure th
                             value: "arguments",
                         },
                         {
+                            label: "Jokes",
+                            value: "jokes",
+                        },
+                        {
                             label: "Related Topics",
                             value: "related_topics",
                         },
@@ -582,9 +590,10 @@ Finally, select the sections you'd like to include in your note and configure th
             stories: 8,
             references: 9,
             arguments: 10,
-            related_topics: 11,
-            chapters: 12,
-            custom_section: 13
+            jokes: 11,
+            related_topics: 12,
+            chapters: 13,
+            custom_section: 14
         };
 
         // Check if user has provided a custom section order

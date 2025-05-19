@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.58",
+    version: "0.1.60",
     type: "action",
     props: {
         instructions: {
@@ -440,6 +440,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             "References",
                             "Arguments",
                             "Related Topics",
+                            "Jokes",
                             "Chapters",
                         ],
                         optional: true,
@@ -512,9 +513,9 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             props.summary_density = {
                                 type: "integer",
                                 label: "Summary Density (Advanced)",
-                                description: `Sets the maximum number of paragraphs for each chunk of your transcript, and therefore the max number of paragraphs that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nDefaults to 20 paragraphs (of 3 sentences each), with a minimum of 1 and a maximum of 200.\n\n**Note:** Depending on your chosen AI model it is possible to set this number too high.`,
+                                description: `Sets the maximum number of paragraphs for each chunk of your transcript, and therefore the max number of paragraphs that will be sent to your chosen LLM in each summarization request.\n\nA smaller number will result in a more "dense" summary, as the same summarization prompt will be run for a smaller chunk of the transcript – hence, more requests will be made, as the transcript will be split into more chunks.\n\nSplitting the transcript into chunks will also slightly speed up the workflow, as each chunk will be sent to the LLM in parallel – except the first chunk. It is sent ahead of time, allowing its summary to be included in the system instructions for all other chunks in order to improve summary quality.\n\nDefaults to 20 paragraphs (of 3 sentences each), with a minimum of 1 and a maximum of 5,000.\n\n**Note:** Depending on your chosen AI model, it is possible to set this number too high for the model's context window. This workflow does not estimate the number of tokens in each request (the libraries for doing so are too large), but a good rule of thumb is that 100 tokens roughly equals 75 English-language words.`,
                                 min: 1,
-                                max: 200,
+                                max: 5000,
                                 default: 20,
                                 optional: true,
                             };

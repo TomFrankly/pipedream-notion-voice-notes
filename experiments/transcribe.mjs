@@ -82,12 +82,12 @@ import natural from "natural";
 import {franc, francAll} from 'franc';
 
 // Project utils
-import lang from "./helpers/languages.mjs";
-import common from "./helpers/common.mjs";
-import translation from "./helpers/translate-transcript.mjs";
-import openaiOptions from "./helpers/openai-options.mjs";
-import EMOJI from './helpers/emoji.mjs';
-import RATES from './helpers/rates.mjs';
+import lang from "../helpers/languages.mjs";
+import common from "../helpers/common.mjs";
+import translation from "../helpers/translate-transcript.mjs";
+import openaiOptions from "../helpers/openai-options.mjs";
+import EMOJI from '../helpers/emoji.mjs';
+import RATES from '../helpers/rates.mjs';
 
 const config = {
 	filePath: "",
