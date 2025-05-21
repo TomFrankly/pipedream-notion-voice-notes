@@ -48,14 +48,14 @@ import { join, extname } from "path"; // Path handling
 import { exec, spawn } from "child_process"; // Shell commands
 
 // Project utils
-import transcribe from "./helpers/transcribe.mjs"; // Transcription methods
-import lang from "./helpers/languages.mjs"; // Language codes
-import common from "./helpers/common.mjs"; // Common methods
-import chat from "./helpers/chat.mjs"; // LLM API methods
-import translation from "./helpers/translate-transcript.mjs"; // Transcript translation
-import openaiOptions from "./helpers/openai-options.mjs"; // OpenAI options
-import EMOJI from "./helpers/emoji.mjs"; // Emoji list
-import MODEL_INFO from "./helpers/model-info.mjs"; // LLM model pricing, context window, and output limits
+import transcribe from "../helpers/transcribe.mjs"; // Transcription methods
+import lang from "../helpers/languages.mjs"; // Language codes
+import common from "../helpers/common.mjs"; // Common methods
+import chat from "../helpers/chat.mjs"; // LLM API methods
+import translation from "../helpers/translate-transcript.mjs"; // Transcript translation
+import openaiOptions from "../helpers/openai-options.mjs"; // OpenAI options
+import EMOJI from "../helpers/emoji.mjs"; // Emoji list
+import MODEL_INFO from "../helpers/model-info.mjs"; // LLM model pricing, context window, and output limits
 
 const execAsync = promisify(exec);
 
