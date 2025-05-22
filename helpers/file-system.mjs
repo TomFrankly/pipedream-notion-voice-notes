@@ -43,13 +43,13 @@ export default {
             
             if (elapsedSeconds >= TIMEOUT_SECONDS) {
                 console.log(`Timeout limit reached (${TIMEOUT_SECONDS}s). Stopping workflow to preserve logs.`);
-                await this.cleanTmp(true);
+                await this.cleanTmp({cleanChunks: true, keepFile: false});
                 return true;
             }
             
             if (elapsedSeconds >= (TIMEOUT_SECONDS - EARLY_TERMINATION_SECONDS)) {
                 console.log(`Early termination triggered at ${elapsedSeconds.toFixed(2)}s (${EARLY_TERMINATION_SECONDS}s before timeout)`);
-                await this.cleanTmp(true);
+                await this.cleanTmp({cleanChunks: true, keepFile: false});
                 return true;
             }
             
@@ -114,14 +114,19 @@ export default {
                 `Estimated WAV size: ${estimatedWavSizeMB.toFixed(1)}MB. `
             );
         },
-		async cleanTmp(cleanChunks = true) {
+		async cleanTmp({cleanChunks = true, keepFile = false}) {
 			console.log(`Attempting to clean up the /tmp/ directory...`);
 
-			if (this.filePath && fs.existsSync(this.filePath)) {
-				await fs.promises.unlink(this.filePath);
-			} else {
-				console.log(`File ${this.filePath} does not exist.`);
-			}
+            if (keepFile && keepFile === true) {
+                console.log(`cleanTmp() called. User requested to keep the original file in /tmp/...`);
+            } else {
+                if (this.filePath && fs.existsSync(this.filePath)) {
+                    console.log(`File ${this.filePath} exists. Removing...`);
+                    await fs.promises.unlink(this.filePath);
+                } else {
+                    console.log(`File ${this.filePath} does not exist.`);
+                }
+            }
 
 			// Only clean chunks if not using direct upload and cleanChunks is true
 			if (

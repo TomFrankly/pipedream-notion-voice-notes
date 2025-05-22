@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.60",
+    version: "0.1.62",
     type: "action",
     props: {
         instructions: {
@@ -333,6 +333,14 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     optional: true,
                 };
 
+                props.keep_file = {
+                    type: "boolean",
+                    label: "Keep File",
+                    description: `When enabled, this step will not actively try to delete the original audio file in /tmp/ in normal, successful runs. This is useful if you want to use the audio file in another step – for example, the Send to Notion step can be set to upload the file to Notion.\n\n**Note:** Pipedream may still automatically delete the file when it cleans up the /tmp/ directory. This can often happen when you're setting up and testing the workflow. If it does happen, you can re-test your Download File step to re-download the file to /tmp/.`,
+                    default: true,
+                    optional: true,
+                };
+
                 props.enable_downsampling = {
                     type: "boolean",
                     label: "Enable Audio Downsampling",
@@ -375,6 +383,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 const advancedProps = [
                     'chunk_size',
                     'disable_chunking',
+                    'keep_file',
                     'enable_downsampling',
                     'path_to_file',
                     'file_link',
@@ -575,6 +584,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             'ai_temperature',
                             'chunk_size',
                             'disable_chunking',
+                            'keep_file',
                             'enable_downsampling',
                             'path_to_file',
                             'debug',
@@ -691,6 +701,15 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 		let previousTime = process.hrtime.bigint();
         
         console.log("=== STARTING RUN ===");
+
+        console.log("Initializing required advanced properties...");
+
+        if (this.keep_file === undefined) this.keep_file = true;
+        if (this.chunk_size === undefined) this.chunk_size = 10;
+        if (this.disable_chunking === undefined) this.disable_chunking = false;
+        if (this.enable_downsampling === undefined) this.enable_downsampling = false;
+        if (this.summary_density === undefined) this.summary_density = 20;
+
         console.log("Logging Settings...");
         const logSettings = {
             transcription_service: this.transcription_service,
@@ -710,6 +729,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             ai_temperature: this.ai_temperature,
             chunk_size: this.chunk_size,
             disable_chunking: this.disable_chunking,
+            keep_file: this.keep_file,
             enable_downsampling: this.enable_downsampling,
             path_to_file: this.path_to_file,
             file_link: this.file_link,
@@ -1003,8 +1023,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 
         let fileToProcess = fileInfo.metadata.path;
 
-        if ((this.advanced_options && this.enable_downsampling) || !this.supportedMimes.includes(fileInfo.metadata.mime)) {
-            if (this.advanced_options && this.enable_downsampling) {
+        if ((this.advanced_options && this.enable_downsampling === true) || !this.supportedMimes.includes(fileInfo.metadata.mime)) {
+            if (this.advanced_options && this.enable_downsampling === true) {
                 console.log("Downsampling enabled. Processing audio file...");
             } else {
                 console.log("Unsupported file type. File will be downsampled and converted to m4a before being processed.");
@@ -1058,7 +1078,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             outputDir: chunkFiles.outputDir,
         })
 
-        await this.cleanTmp();
+        await this.cleanTmp({cleanChunks: true, keepFile: this.keep_file});
 
 		stageDurations.transcription =
         Number(process.hrtime.bigint() - previousTime) / 1e6;
@@ -1444,6 +1464,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 cloud_app: fileInfo.metadata.cloud_app ?? null,
                 path: fileInfo.metadata.path ?? null,
                 mime: fileInfo.metadata.mime ?? null,
+                file_size: this.file_size ?? null,
                 duration: fileInfo.metadata.duration ?? null,
                 duration_formatted: fileInfo.metadata.duration_formatted ?? null,
                 longest_gap: fileInfo.metadata.longest_gap ?? null,

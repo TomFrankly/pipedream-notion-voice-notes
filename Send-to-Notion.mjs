@@ -1,6 +1,7 @@
 import { Client } from "@notionhq/client"; // Notion SDK
-import { createPage, createNotion } from "notion-helper"; // Notion helper
+import { createPage, createNotionBuilder } from "notion-helper"; // Notion helper
 import {markdownToBlocks} from '@tryfabric/martian'; // Markdown to Notion blocks
+import uploadFile from "./helpers/upload-file.mjs";
 
 import EMOJI from "./helpers/emoji.mjs"; // Emoji list
 
@@ -9,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.49",
+    version: "0.0.62",
     props: {
         instructions: {
             type: "alert",
@@ -182,6 +183,31 @@ Finally, select the sections you'd like to include in your note and configure th
 
             const properties = database.properties;
 
+            // Clear out any property values that are no longer valid for the new database
+            if (this.noteTitle && !properties[this.noteTitle]) {
+                delete this.noteTitle;
+                delete this.noteTitleValue;
+            }
+            if (this.noteDuration && !properties[this.noteDuration]) {
+                delete this.noteDuration;
+            }
+            if (this.noteTag && !properties[this.noteTag]) {
+                delete this.noteTag;
+                delete this.noteTagValue;
+            }
+            if (this.noteDate && !properties[this.noteDate]) {
+                delete this.noteDate;
+            }
+            if (this.noteFileName && !properties[this.noteFileName]) {
+                delete this.noteFileName;
+            }
+            if (this.noteFileLink && !properties[this.noteFileLink]) {
+                delete this.noteFileLink;
+            }
+            if (this.noteFileProperty && !properties[this.noteFileProperty]) {
+                delete this.noteFileProperty;
+            }
+
             // Define all properties upfront
             props = {
                 noteTitle: {
@@ -300,6 +326,33 @@ Finally, select the sections you'd like to include in your note and configure th
                         optional: true,
                     },
                 }),
+                uploadFile: {
+                    type: "boolean",
+                    label: "Upload File",
+                    description: `If true, this step will attempt to upload the audio file to Notion.\n\n**Note:** If your workspace is on the free plan, file uploads are limited to 5MB. If your file is larger than this, it will not be uploaded.`,
+                    default: false,
+                    optional: true,
+                    reloadProps: true,
+                },
+                ...(this.uploadFile && {
+                    noteFileProperty: {
+                        type: "string",
+                        label: "Uploaded File Property",
+                        description:
+                            "Select a Files-type property for your note's uploaded file. This property will store the uploaded audio file. You may also leave this blank and solely create an Audio block on the page using the property below.",
+                        options: Object.keys(properties)
+                            .filter((k) => properties[k].type === "files")
+                            .map((prop) => ({ label: prop, value: prop })),
+                        optional: true,
+                    },
+                    createAudioBlock: {
+                        type: "boolean",
+                        label: "Create Audio Block",
+                        description: "If true, this step will create an Audio block at the top of the page containing the uploaded audio file.",
+                        default: true,
+                        optional: true,
+                    }
+                }),
                 toggleHeaders: {
                     type: "string[]",
                     label: "Use Toggle Headers",
@@ -412,6 +465,15 @@ Finally, select the sections you'd like to include in your note and configure th
                     hidden: !this.giveMeMoreControl,
                     disabled: !this.giveMeMoreControl
                 },
+                suppressAudioWarning: {
+                    type: "boolean",
+                    label: "Suppress Audio Warning",
+                    description: "If true, the step will not create a Callout block at the top of the page in the case of a failed audio file upload.",
+                    default: false,
+                    optional: true,
+                    hidden: !this.giveMeMoreControl,
+                    disabled: !this.giveMeMoreControl
+                },
                 debug: {
                     type: "boolean",
                     label: "Debug",
@@ -430,6 +492,7 @@ Finally, select the sections you'd like to include in your note and configure th
         }
     },
     methods: {
+        ...uploadFile.methods,
         createCompressedTranscript(textArray) {
             const compressedArray = [];
             let i = 0;
@@ -471,6 +534,30 @@ Finally, select the sections you'd like to include in your note and configure th
     },
     async run({ steps, $ }) {
 
+        // Init required properties if not set
+        if (this.uploadFile === true) {
+            if (this.createAudioBlock === undefined) {
+                this.createAudioBlock = true;
+            }
+        }
+
+        if (this.compressTranscripts === undefined) {
+            this.compressTranscripts = false;
+        }
+
+        if (this.compressTimestamps === undefined) {
+            this.compressTimestamps = false;
+        }
+
+        if (this.suppressAudioWarning === undefined) {
+            this.suppressAudioWarning = false;
+        }
+
+        if (this.debug === undefined) {
+            this.debug = false;
+        }
+        
+
         // Log all the settings, except for the steps object
         console.log(`Notion database settings:`)
         console.log(`Database ID: ${this.databaseID}`)
@@ -485,6 +572,11 @@ Finally, select the sections you'd like to include in your note and configure th
         console.log(`Custom section title: ${this.customSectionTitle}`)
 
         console.log(`Additional settings:`)
+        console.log(`Upload file: ${this.uploadFile}`)
+        if (this.uploadFile === true) {
+            console.log(`Uploaded file property: ${this.noteFileProperty}`)
+            console.log(`Create audio block: ${this.createAudioBlock}`)
+        }
         console.log(`Included sections: ${this.includedSections}`)
         console.log(`Compress transcripts: ${this.compressTranscripts}`)
         console.log(`Compress timestamps: ${this.compressTimestamps}`)
@@ -495,6 +587,7 @@ Finally, select the sections you'd like to include in your note and configure th
             console.log(`Compression threshold: ${this.compressionThreshold}`)
             console.log(`Header type: ${this.headerType}`)
             console.log(`Section order: ${this.sectionOrder}`)
+            console.log(`Suppress audio warning: ${this.suppressAudioWarning}`)
             console.log(`Debug: ${this.debug}`)
         }
 
@@ -518,6 +611,39 @@ Finally, select the sections you'd like to include in your note and configure th
         }
 
         console.log(`Check 3: "Transcribe and Summarize" step has a "$return_value" object. It contains the keys "property_values", "page_content", and "other_data".`)
+
+        // Create a Notion client
+        const notion = new Client({
+            auth: this.notion.$auth.oauth_access_token,
+        });
+
+        // Fetch the properties from the configured database, and ensure all selected properties are present
+        let databaseProperties;
+        try {
+            databaseProperties = await notion.databases.retrieve({
+                database_id: this.databaseID,
+            });
+        } catch (error) {
+            throw new Error(`Error occurred when attempting to check the configured Notion database and verify that all configured properties exist: ${error.message}`);
+        }
+
+        // Check that all selected properties are present in the database properties
+        const configuredProperties = [
+            this.noteTitle,
+            this.noteDuration,
+            this.noteTag,
+            this.noteFileName,
+            this.noteFileLink,
+            this.noteFileProperty
+        ].filter(prop => prop); // Only include properties that have values
+
+        const missingProperties = configuredProperties.filter(property => !databaseProperties.properties[property]);
+        if (missingProperties.length > 0) {
+            throw new Error(`The following properties are not present in the database: ${missingProperties.join(", ")}. Please ensure that you have not renamed or removed these properties. If you had previously configured this workflow step with a different database, then switched to a new database, please check each of the Notion property sections above and ensure that your selected property actually exists on the new database. These choices do not automatically update when you choose a new database.`);
+        }
+
+        console.log(`Check 4: All selected properties are present in the database.`)
+        
         console.log(`All prerequisites for running this step have been met.`)
         
         // Get the "Transcribe and Summarize" step's "$return_value" object
@@ -733,8 +859,22 @@ Finally, select the sections you'd like to include in your note and configure th
         console.log(`Notion data:   `)
         console.dir(notionData, { depth: null });
 
+        // If this.uploadFile is true, attempt to upload the audio file to Notion
+        let uploadId = null;
+        if (this.uploadFile === true) {
+            // If successfully uploaded, set uploadId to the final UUID from Notion
+            // On size error, set uploadId to warning message
+            // On other errors, set uploadId to error message
+            uploadId = await this.uploadFileToNotion({
+                path: fileInfo.other_data.metadata.path,
+                name: fileInfo.other_data.file_name,
+                mime: fileInfo.other_data.metadata.mime,
+                size: parseInt(fileInfo.other_data.metadata.file_size)
+            })
+        }
+
         // Start constructing the Notion API data object with notion-helper
-        let page = createNotion({
+        let page = createNotionBuilder({
             limitChildren: false,
         })
             .parentDb(this.databaseID)
@@ -761,6 +901,10 @@ Finally, select the sections you'd like to include in your note and configure th
 
             if (this.noteFileLink) {
                 page = page.url(this.noteFileLink, fileInfo.property_values.file_link);
+            }
+
+            if (this.noteFileProperty && this.checkForUUID(uploadId) === true) {
+                page = page.files(this.noteFileProperty, uploadId);
             }
         } catch (error) {
             throw new Error(`There was an error adding a Notion property to the page. Please ensure that the property is valid and that the value is a string.`);
@@ -841,6 +985,23 @@ Finally, select the sections you'd like to include in your note and configure th
 
         // Start constructing the page content
 
+        // If this.createAudioBlock is true, create an audio block
+        if (this.createAudioBlock === true) {
+            if (this.checkForUUID(uploadId) === true) {
+                page = page.audio(uploadId);
+            } else {
+                console.warn(uploadId);
+
+                if (!this.suppressAudioWarning || this.suppressAudioWarning === false) {
+                    page = page.callout({
+                        rich_text: `The audio file could not be uploaded to Notion. ${uploadId}`,
+                        color: "red_background",
+                        icon: "⚠️"
+                    })
+                }
+            }
+        }
+
         // For each key in notionData.page_content, add it to the page content
         Object.keys(notionData.page_content).forEach(key => {
             let headerText = "";
@@ -902,11 +1063,6 @@ Finally, select the sections you'd like to include in your note and configure th
         if (this.debug === true) {
             return page;
         }
-        
-        // Create a Notion client
-        const notion = new Client({
-            auth: this.notion.$auth.oauth_access_token,
-        });
 
         // Create the page
         const response = await createPage({
