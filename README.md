@@ -1,24 +1,28 @@
-This workflow lets you create perfectly-transcribed and summarized notes from voice recordings.
+This is a powerful (and free) speech-to-text workflow for [Pipedream](). It is designed to help you take notes in [Notion]() with your voice; however, it can also be used for other purposes.
 
-It also can create useful lists from the transcript, including:
+It allows you to:
 
-* Main points
-* Action items
-* Follow-up questions
-* Potential rebuttals
-* More!
+- Upload audio files to Google Drive, Dropbox, Microsoft OneDrive, and other cloud services
+- Transcribe the audio to text (see supported providers below)
+- Translate the text to other languages
+- Summarize the transcript (see supported AI services below)
+- Extract main points, action items, references, stories, etc.
+- Get timestamps (captions)
+- Send everything to Notion
 
-To use it, simply set up and deploy the workflow in Pipedream using the one-click links in the section below, then upload mp3 or m4a files to your configured cloud storage folder.
+To use it, simply set up and deploy the workflow in Pipedream using the one-click links in the section below, then upload audio files to your configured cloud storage folder.
 
-**Need help with this workflow? [Check out the full instructions and FAQ here.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**
+**[Check out the full tutorial and FAQ here for more details.]()**
 
 ## Versions
 
-This is a one-click Pipedream workflow. Choose the version that works with your chosen cloud storage provider:
+This is a one-click Pipedream workflow. Choose the version that works with your chosen cloud storage provider.
 
 * [Dropbox Version](https://thomasjfrank.com/pipedream-notion-voice-notes-dropbox/)
 * [Google Drive Version](https://thomasjfrank.com/pipedream-notion-voice-notes-gdrive/)
 * [Microsoft OneDrive Version](https://thomasjfrank.com/pipedream-notion-voice-notes-onedrive/)
+
+***Advanced:** If you have some other way of uploading audio files to Pipedream, you can also provide the direct path to a locally-downloaded file.*
 
 ## Compatibility
 
@@ -26,26 +30,63 @@ This workflow will work with any Notion database.
 
 ### Upgrade Your Notion Experience
 
-While this workflow will work with any Notion database, it's even better with a template.
+While this workflow will work with any Notion database, it’s even better with a template.
 
-For general productivity use, you'll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. 
+For general productivity use, you’ll love [Ultimate Brain](https://thomasjfrank.com/brain/) – my all-in-one second brain template for Notion. 
 
 Ultimate Brain brings tasks, notes, projects, and goals all into one tool. Naturally, it works very well with this workflow.
 
-**Are you a creator?** 
+**Are you a creator?**
 
-My [Creator's Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There's even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.
+My [Creator’s Companion](https://thomasjfrank.com/creators-companion/) template includes a ton of features that will help you make better-performing content and optimize your production process. There’s even a version that includes Ultimate Brain, so you can easily use this workflow to create notes whenever you have an idea for a new video or piece of content.
 
 ## Instructions
 
 [Click here for the full instructions on setting up this workflow.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)
+
+## Supported Providers
+
+This workflow provides support for several speech-to-text and LLM providers. Some provide free usage tiers, which means this entire workflow can be run for free within certain limits.
+
+**Speech to Text:**
+
+For speech to text, Groq is generally recommended. They allow up to 8 hours of free transcription per day, and their models are extremely fast.
+
+- Groq
+- Deepgram
+- AssemblyAI
+- ElevenLabs
+- Google Gemini
+- OpenAI
+
+**AI (LLMs):**
+
+For AI (summarization, translation, AI cleanup), Groq is generally recommended for most use cases. Their open-source Llama models have a generous free tier, are extremely fast, and are adequate for this workflow's main use cases.
+
+- Groq
+- Anthropic
+- Google Gemini
+- OpenAI
+- Cerebras
+
+For each service, a handful of tested models are provided as default options. There is also a **Custom AI Model** option you can access by enabling Advanced Settings, which is useful if you want to specify another model.
+
+## Going Beyond Notion
+
+This workflow features two custom Pipedream actions:
+
+1. **Transcribe-Summarize:** This step sends your audio file to your chosen speech-to-text services. It also handles translation, AI cleanup, and AI summarization as configured.
+2. **Send-to-Notion:** This custom action sends everything from the Transcribe-Summarize step to a new page in Notion. It uses my [notion-helper](https://github.com/TomFrankly/notion-helper) library to minimize API calls and handle the Notion API's various limitations.
+
+The Transcribe-Summarize step returns everything you could want for repurposing this workflow for use with other apps.
+
+Want to email the transcript instead, or send it to Slack? No sweat. Just remove/disable the Send-to-Notion step and bring in your own custom steps that references the exports from Transcribe-Summarize.
 
 ## More Resources
 
 **More automations you may find useful:**
 
 * [Create Tasks in Notion with Your Voice](https://thomasjfrank.com/notion-chatgpt-voice-tasks/)
-* [Notion to Google Calendar Sync](https://thomasjfrank.com/notion-google-calendar-sync/)
 
 **All My Notion Automations:**
 

@@ -330,6 +330,11 @@ export default {
                     console.log(`Using custom prompt: ${this.whisper_prompt}`);
                 }
 
+                // Add language if provided
+                if (this.whisper_language) {
+                    requestParams.language = this.whisper_language;
+                }
+
                 // Add timestamp granularities only for non-GPT-4o models
                 if (!isGPT4oModel) {
                     requestParams.timestamp_granularities = ["segment"];
@@ -411,6 +416,11 @@ export default {
                 if (this.whisper_temperature !== undefined) {
                     requestParams.temperature = this.whisper_temperature / 10;
                 }
+
+                // Add language if provided
+                if (this.whisper_language) {
+                    requestParams.language = this.whisper_language;
+                }
                 
                 const response = await groq.audio.transcriptions.create(requestParams);
 
@@ -447,6 +457,11 @@ export default {
                     punctuate: true,
                     utterances: true
                 };
+
+                // Add language if provided
+                if (this.whisper_language) {
+                    transcriptionParams.language = this.whisper_language;
+                }
 
                 const deepgram = createClient(apiKey);
                 const { result: sdkResult, error } = await deepgram.listen.prerecorded.transcribeFile(
@@ -508,7 +523,7 @@ export default {
             const client = new ElevenLabsClient({ apiKey });
             
             try {
-                const response = await client.speechToText.convert({
+                const requestParams = {
                     model_id: model,
                     file: readStream,
                     diarize: true,
@@ -519,7 +534,14 @@ export default {
                             format: "srt"
                         }
                     ]
-                });
+                }
+
+                // Add language if provided
+                if (this.whisper_language) {
+                    requestParams.language = this.whisper_language;
+                }
+                
+                const response = await client.speechToText.convert(requestParams);
 
                 return {
                     text: response.text,
@@ -617,6 +639,11 @@ export default {
                     // Add keyterms to transcription parameters
                     console.log("Adding keyterms to transcription parameters...");
                     transcriptionParams.keyterms_prompt = this.keyterms;
+                }
+
+                // Add language_code if provided and if model is not "slam-1"
+                if (this.whisper_language && model !== "slam-1") {
+                    transcriptionParams.language_code = this.whisper_language;
                 }
 
                 // Submit transcription request and wait for completion

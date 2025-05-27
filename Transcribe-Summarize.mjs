@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.62",
+    version: "0.1.63",
     type: "action",
     props: {
         instructions: {
@@ -212,7 +212,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 anthropic: {
                     name: "Anthropic",
                     recommended: "claude-3-5-haiku-latest",
-                    models: ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"],
+                    models: ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest", "claude-sonnet-4-0", "claude-opus-4-0"],
                     prop: "anthropic",
                     app: {
                         type: "app",
@@ -486,6 +486,17 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 min: 0,
                                 max: 20,
                             };
+
+                            props.whisper_language = {
+                                type: "string",
+                                label: "Transcription Language",
+                                description: `Set the language for the transcription model. This will explicitly tell the transcription model to transcribe the audio in the language you select.\n\nThis is typically not needed, but sometimes Whisper has a habit of translating non-English audio into English when a language isn't specified.`,
+                                optional: true,
+                                options: lang.LANGUAGES.map((lang) => ({
+                                    label: lang.label,
+                                    value: lang.value,
+                                })),
+                            };
                         } else {
 
                             if (props.whisper_prompt) {
@@ -495,6 +506,10 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                             if (props.whisper_temperature) {
                                 props.whisper_temperature.hidden = true;
                                 props.whisper_temperature.disabled = true;
+                            }
+                            if (props.whisper_language) {
+                                props.whisper_language.hidden = true;
+                                props.whisper_language.disabled = true;
                             }
                         }
 
@@ -508,7 +523,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                     label: lang.label,
                                     value: lang.value,
                                 })),
-                                reloadProps: true,
                             };
 
                             props.ai_cleanup = {
@@ -546,6 +560,13 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 min: 0,
                                 max: 20,
                             };
+
+                            props.ai_custom_model = {
+                                type: "string",
+                                label: "Custom AI Model",
+                                description: `If you'd like to use a custom AI model, you can enter the model name here. This will override the default model for the AI service you've chosen.\n\nThis feature is experimental. You must provide the model name exactly as it appears in the AI service's API documentation. This feature will only work for models provided by your chosen AI Service.\n\nExample: 'gemini-2.5-flash-preview-04-17' (no quotes).\n\nYou'll still need to select a default AI Model above as well.`,
+                                optional: true,
+                            }
                         } else {
 
                             if (props.translation_language) {
@@ -572,16 +593,23 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                                 props.ai_temperature.hidden = true;
                                 props.ai_temperature.disabled = true;
                             }
+
+                            if (props.ai_custom_model) {
+                                props.ai_custom_model.hidden = true;
+                                props.ai_custom_model.disabled = true;
+                            }
                         }
                     } else {
                         const advancedProps = [
                             'whisper_prompt',
                             'whisper_temperature',
+                            'whisper_language',
                             'translation_language',
                             'ai_cleanup',
                             'summary_density',
                             'verbosity',
                             'ai_temperature',
+                            'ai_custom_model',
                             'chunk_size',
                             'disable_chunking',
                             'keep_file',
@@ -724,9 +752,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             keyterms: this.keyterms,
             whisper_prompt: this.whisper_prompt,
             whisper_temperature: this.whisper_temperature,
+            whisper_language: this.whisper_language,
             summary_density: this.summary_density,
             verbosity: this.verbosity,
             ai_temperature: this.ai_temperature,
+            ai_custom_model: this.ai_custom_model,
             chunk_size: this.chunk_size,
             disable_chunking: this.disable_chunking,
             keep_file: this.keep_file,
@@ -764,7 +794,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     models: ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"]
                 },
                 anthropic: {
-                    models: ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest"]
+                    models: ["claude-3-5-haiku-latest", "claude-3-5-sonnet-latest", "claude-sonnet-4-0", "claude-opus-4-0"]
                 },
                 google_gemini: {
                     models: ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"]
@@ -832,6 +862,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     `Available models are: ${availableModels.join(', ')}`
                 );
             }
+        }
+
+        if (this.ai_custom_model && this.ai_custom_model !== "") {
+            console.log(`User has set a custom AI model. Switching from default model ${this.ai_model} to custom model ${this.ai_custom_model}.`);
+            this.ai_model = this.ai_custom_model;
         }
 
         /* -- Setup Stage -- */
