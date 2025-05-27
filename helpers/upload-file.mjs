@@ -30,6 +30,7 @@ export default {
                 return await retry(
                     async (bail, attempt) => {
                         try {
+                            this.uploadFileCallCount++;
                             const response = await axios(config);
                             return response;
                         } catch (error) {

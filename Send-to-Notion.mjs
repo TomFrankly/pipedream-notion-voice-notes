@@ -10,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.63",
+    version: "0.0.64",
     props: {
         instructions: {
             type: "alert",
@@ -612,6 +612,13 @@ Finally, select the sections you'd like to include in your note and configure th
 
         console.log(`Check 3: "Transcribe and Summarize" step has a "$return_value" object. It contains the keys "property_values", "page_content", and "other_data".`)
 
+        // Set up the API call counters
+        this.apiCallCount = 0;
+        this.workspaceCheckCallCount = 0;
+        this.uploadFileCallCount = 0;
+        this.pageCreationCallCount = 0;
+        this.blockAppendCallCount = 0;
+
         // Create a Notion client
         const notion = new Client({
             auth: this.notion.$auth.oauth_access_token,
@@ -866,6 +873,7 @@ Finally, select the sections you'd like to include in your note and configure th
             let uploadSizeLimit;
 
             try {
+                this.workspaceCheckCallCount++;
                 const botUser = await notion.users.me();
                 uploadSizeLimit = botUser.bot.workspace_limits.max_file_upload_size_in_bytes;
             } catch (error) {
@@ -1085,17 +1093,27 @@ Finally, select the sections you'd like to include in your note and configure th
         }
 
         // Create the page
+        this.pageCreationCallCount++;
         const response = await createPage({
             client: notion,
             data: page.content,
         })
 
-        // Export a summary with the total number of API calls made.
+        // Set the block append call count if it exists
         if (response.appendedBlocks && response.appendedBlocks.apiCallCount) {
-            $.export("$summary", `Successfully created the page in Notion. Total API calls made: ${response.appendedBlocks.apiCallCount + 1}`);
-        } else {
-            $.export("$summary", `Successfully created the page in Notion. Total API calls made: 1`);
+            this.blockAppendCallCount = response.appendedBlocks.apiCallCount;  
         }
+
+        // Total API calls made
+        const totalApiCalls = this.workspaceCheckCallCount + this.uploadFileCallCount + this.pageCreationCallCount + this.blockAppendCallCount;
+        console.log(`Total API calls made: ${totalApiCalls}`);
+        console.log(`Workspace check calls: ${this.workspaceCheckCallCount}`);
+        console.log(`Upload file calls: ${this.uploadFileCallCount}`);
+        console.log(`Page creation calls: ${this.pageCreationCallCount}`);
+        console.log(`Block append calls: ${this.blockAppendCallCount}`);
+
+        // Export a summary with the total number of API calls made.
+        $.export("$summary", `Successfully created the page in Notion. Total API calls made: ${totalApiCalls}.`);
 
         // Return the response
         return response;
