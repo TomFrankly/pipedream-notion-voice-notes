@@ -10,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.62",
+    version: "0.0.63",
     props: {
         instructions: {
             type: "alert",
@@ -862,15 +862,35 @@ Finally, select the sections you'd like to include in your note and configure th
         // If this.uploadFile is true, attempt to upload the audio file to Notion
         let uploadId = null;
         if (this.uploadFile === true) {
-            // If successfully uploaded, set uploadId to the final UUID from Notion
-            // On size error, set uploadId to warning message
-            // On other errors, set uploadId to error message
-            uploadId = await this.uploadFileToNotion({
-                path: fileInfo.other_data.metadata.path,
-                name: fileInfo.other_data.file_name,
-                mime: fileInfo.other_data.metadata.mime,
-                size: parseInt(fileInfo.other_data.metadata.file_size)
-            })
+            // First, check if the user's workspace file upload limits support the file's size
+            let uploadSizeLimit;
+
+            try {
+                const botUser = await notion.users.me();
+                uploadSizeLimit = botUser.bot.workspace_limits.max_file_upload_size_in_bytes;
+            } catch (error) {
+                console.error(`Unable to fetch workspace file upload limits. Audio file will not be uploaded to Notion.`)
+            }
+            
+            if (uploadSizeLimit && uploadSizeLimit > 0) {
+                const fileSize = parseInt(fileInfo.other_data.metadata.file_size);
+                if (fileSize > uploadSizeLimit) {
+                    console.error(`The audio file is too large to upload to Notion. The file size is ${fileSize} bytes, but the workspace upload limit is ${uploadSizeLimit} bytes.`)
+                    uploadId = `The audio file is too large to upload to Notion. The file size is ${fileSize} bytes, but the workspace upload limit is ${uploadSizeLimit} bytes.`
+                } else {
+                    console.log(`File size ${fileSize} bytes is less than the workspace upload limit of ${uploadSizeLimit} bytes. Uploading file to Notion.`)
+                    
+                    uploadId = await this.uploadFileToNotion({
+                        path: fileInfo.other_data.metadata.path,
+                        name: fileInfo.other_data.file_name,
+                        mime: fileInfo.other_data.metadata.mime,
+                        size: parseInt(fileInfo.other_data.metadata.file_size)
+                    })
+                }
+            } else {
+                console.error(`Unable to fetch workspace file upload limits. Audio file will not be uploaded to Notion.`)
+                uploadId = `Unable to fetch workspace file upload limits. Audio file will not be uploaded to Notion.`
+            }
         }
 
         // Start constructing the Notion API data object with notion-helper
