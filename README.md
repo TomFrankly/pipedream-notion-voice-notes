@@ -1,4 +1,4 @@
-This is a powerful (and free) speech-to-text workflow for [Pipedream](). It is designed to help you take notes in [Notion]() with your voice; however, it can also be used for other purposes.
+This is a powerful (and free) speech-to-text workflow for [Pipedream](https://thomasjfrank.com/pipedream/). It is designed to help you take notes in [Notion](https://thomasjfrank.com/usenotion/) with your voice; however, it can also be used for other purposes.
 
 It allows you to:
 
@@ -12,7 +12,7 @@ It allows you to:
 
 To use it, simply set up and deploy the workflow in Pipedream using the one-click links in the section below, then upload audio files to your configured cloud storage folder.
 
-**[Check out the full tutorial and FAQ here for more details.]()**
+**[Check out the full tutorial and FAQ here for more details.](https://thomasjfrank.com/how-to-transcribe-audio-to-text-with-chatgpt-and-notion/)**
 
 ## Versions
 
@@ -52,22 +52,24 @@ This workflow provides support for several speech-to-text and LLM providers. Som
 
 For speech to text, Groq is generally recommended. They allow up to 8 hours of free transcription per day, and their models are extremely fast.
 
-- Groq
+- Groq (free tier available)
 - Deepgram
 - AssemblyAI
 - ElevenLabs
-- Google Gemini
+- Google Gemini (free tier available)
 - OpenAI
 
 **AI (LLMs):**
 
 For AI (summarization, translation, AI cleanup), Groq is generally recommended for most use cases. Their open-source Llama models have a generous free tier, are extremely fast, and are adequate for this workflow's main use cases.
 
-- Groq
+If you want to run more complex prompts on your transcript, you can also use higher-powered models from Anthropic, Google, or OpenAI.
+
+- Groq (free tier available)
 - Anthropic
-- Google Gemini
+- Google Gemini (free tier available)
 - OpenAI
-- Cerebras
+- Cerebras (free tier available)
 
 For each service, a handful of tested models are provided as default options. There is also a **Custom AI Model** option you can access by enabling Advanced Settings, which is useful if you want to specify another model.
 
