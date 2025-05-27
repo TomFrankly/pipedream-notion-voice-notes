@@ -10,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.64",
+    version: "0.0.65",
     props: {
         instructions: {
             type: "alert",
@@ -33,16 +33,16 @@ Finally, select the sections you'd like to include in your note and configure th
 - If you run into a bug or problem, please [open an issue](https://github.com/TomFrankly/pipedream-notion-voice-notes/issues) on GitHub.
             `,
         },
-        steps: {
-			type: "object",
-			label: "Previous Step Data (Set by Default)",
-			description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
-		},
         notion: {
             type: "app",
             app: "notion",
             description: "Connect your Notion account to send data to Notion.",
         },
+        steps: {
+			type: "object",
+			label: "Previous Step Data (Set by Default)",
+			description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
+		},
         includedSections: {
             type: "string[]",
             label: "Included Sections",
