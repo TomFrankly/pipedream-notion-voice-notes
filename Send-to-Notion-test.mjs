@@ -1,16 +1,16 @@
 import { Client } from "@notionhq/client"; // Notion SDK
 import { createPage, createNotionBuilder } from "notion-helper"; // Notion helper
-import {markdownToBlocks} from '@tryfabric/martian'; // Markdown to Notion blocks
+import { markdownToBlocks } from '@tryfabric/martian'; // Markdown to Notion blocks
 import uploadFile from "./helpers/upload-file.mjs";
 
 import EMOJI from "./helpers/emoji.mjs"; // Emoji list
 
 export default {
-    name: "Send to Notion",
-    key: "send-to-notion",
+    name: "Send to Notion (Test)",
+    key: "send-to-notion-test",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.74",
+    version: "0.0.18",
     props: {
         instructions: {
             type: "alert",
@@ -39,74 +39,159 @@ Finally, select the sections you'd like to include in your note and configure th
             description: "Connect your Notion account to send data to Notion.",
         },
         databaseID: {
-			type: "string",
-			label: "Notion Database",
-			description: `Select the Notion database you'd like to use for your notes.\n\n*Note 1: If you don't see your desired database in the dropdown, first click the **Load More** and **Refresh Field** buttons. If it still doesn't appear, it menas Pipedream doesn't have access to the database. To fix this, navigate to the database in Notion. Click ••• → Connections, then find and add Pipedream. Finally, refresh this page.*\n\n*Note 2: If you're using my [Ultimate Brain template](https://thomasjfrank.com/brain/), you'll likely want to use the **Notes** database. If you have multiple databases with the same name, you can find the correct one by checking the database's URL and matching the ID contained in it to the IDs below.*`,
-			async options({ query, prevContext }) {
-				if (this.notion) {
-					try {
-						const notion = new Client({
-							auth: this.notion.$auth.oauth_access_token,
-						});
+            type: "string",
+            label: "Notion Database",
+            description: `Select the Notion database you'd like to use for your notes.\n\n*Note 1: If you don't see your desired database in the dropdown, first click the **Load More** and **Refresh Field** buttons. If it still doesn't appear, it menas Pipedream doesn't have access to the database. To fix this, navigate to the database in Notion. Click ••• → Connections, then find and add Pipedream. Finally, refresh this page.*\n\n*Note 2: If you're using my [Ultimate Brain template](https://thomasjfrank.com/brain/), you'll likely want to use the **Notes** database. If you have multiple databases with the same name, you can find the correct one by checking the database's URL and matching the ID contained in it to the IDs below.*`,
+            async options({ query, prevContext }) {
+                console.log("=== Starting database options function ===");
+                console.log("Query:", query);
+                console.log("Previous context:", prevContext);
+                
+                try {
+                    console.log("Creating Notion client...");
+                    console.log("Auth token exists:", !!this.notion.$auth.oauth_access_token);
+                    console.log("Auth token length:", this.notion.$auth.oauth_access_token?.length);
+                    
+                    const notion = new Client({
+                        auth: this.notion.$auth.oauth_access_token,
+                    });
+                    console.log("Notion client created successfully");
 
-						let start_cursor = prevContext?.cursor;
+                    let start_cursor = prevContext?.cursor;
+                    console.log("Start cursor:", start_cursor);
 
-						const response = await notion.search({
-							...(query ? { query } : {}),
-							...(start_cursor ? { start_cursor } : {}),
-							page_size: 100,
-							filter: {
-								value: "database",
-								property: "object",
-							},
-							sorts: [
-								{
-									direction: "descending",
-									property: "last_edited_time",
-								},
-							],
-						});
+                    console.log("Making search request to Notion API...");
+                    const searchParams = {
+                        ...(query ? { query } : {}),
+                        ...(start_cursor ? { start_cursor } : {}),
+                        page_size: 100,
+                        filter: {
+                            value: "database",
+                            property: "object",
+                        },
+                        sorts: [
+                            {
+                                direction: "descending",
+                                property: "last_edited_time",
+                            },
+                        ],
+                    };
+                    console.log("Search parameters:", JSON.stringify(searchParams, null, 2));
 
-						let notesDbs = response.results.filter((db) =>
-							/notes/i.test(db.title?.[0]?.plain_text)
-						);
-						let nonNotesDbs = response.results.filter(
-							(db) => !/notes/i.test(db.title?.[0]?.plain_text)
-						);
-						let sortedDbs = [...notesDbs, ...nonNotesDbs];
-						const options = sortedDbs.map((db) => ({
-							label: db.title?.[0]?.plain_text,
-							value: db.id,
-						}));
+                    const response = await notion.search(searchParams);
+                    console.log("Search response received");
+                    console.log("Total results:", response.results?.length);
+                    console.log("Has next cursor:", !!response.next_cursor);
+                    console.log("Next cursor:", response.next_cursor);
 
-						return {
-							context: {
-								cursor: response.next_cursor,
-							},
-							options,
-						};
-					} catch (error) {
-						console.error(error);
-						return {
-							context: {
-								cursor: null,
-							},
-							options: [],
-						};
-					}
-				} else {
-					return {
-						options: ["Please connect your Notion account first."],
-					};
-				}
-			},
-			reloadProps: true,
-		},
+                    if (!response.results || response.results.length === 0) {
+                        console.log("No databases found in search results");
+                        return {
+                            context: {
+                                cursor: response.next_cursor,
+                            },
+                            options: [],
+                        };
+                    }
+
+                    console.log("Processing database results...");
+                    console.log("Raw results sample:", response.results.slice(0, 2).map(db => ({
+                        id: db.id,
+                        title: db.title,
+                        object: db.object
+                    })));
+
+                    // Filter out databases without valid titles first
+                    const validDatabases = response.results.filter((db) => {
+                        const hasValidTitle = db.title?.[0]?.plain_text && db.title[0].plain_text.trim() !== "";
+                        if (!hasValidTitle) {
+                            console.log(`Filtering out database with invalid title:`, db.id);
+                        }
+                        return hasValidTitle;
+                    });
+                    console.log("Valid databases after title filtering:", validDatabases.length);
+
+                    let notesDbs = validDatabases.filter((db) => {
+                        const title = db.title[0].plain_text;
+                        const isNotesDb = /notes/i.test(title);
+                        console.log(`Database "${title}" - is notes DB: ${isNotesDb}`);
+                        return isNotesDb;
+                    });
+                    console.log("Notes databases found:", notesDbs.length);
+
+                    let nonNotesDbs = validDatabases.filter((db) => {
+                        const title = db.title[0].plain_text;
+                        const isNotNotesDb = !/notes/i.test(title);
+                        return isNotNotesDb;
+                    });
+                    console.log("Non-notes databases found:", nonNotesDbs.length);
+
+                    let sortedDbs = [...notesDbs, ...nonNotesDbs];
+                    console.log("Total sorted databases:", sortedDbs.length);
+
+                    const options = sortedDbs.map((db) => {
+                        const option = {
+                            label: db.title?.[0]?.plain_text,
+                            value: db.id,
+                        };
+                        console.log("Created option:", option);
+                        return option;
+                    });
+
+                    console.log("Final options array length:", options.length);
+                    console.log("Sample options:", options.slice(0, 3));
+
+                    // Final validation - ensure all options have valid labels and values
+                    const validOptions = options.filter(option => {
+                        const isValid = option.label && option.label.trim() !== "" && option.value && option.value.trim() !== "";
+                        if (!isValid) {
+                            console.log("Filtering out invalid option:", option);
+                        }
+                        return isValid;
+                    });
+                    console.log("Valid options after final filtering:", validOptions.length);
+
+                    const result = {
+                        context: {
+                            cursor: response.next_cursor,
+                        },
+                        options: validOptions,
+                    };
+                    
+                    console.log("=== Database options function completed successfully ===");
+                    return result;
+
+                } catch (error) {
+                    console.error("=== ERROR in database options function ===");
+                    console.error("Error type:", error.constructor.name);
+                    console.error("Error message:", error.message);
+                    console.error("Error stack:", error.stack);
+                    console.error("Full error object:", error);
+                    
+                    // Check for specific error types
+                    if (error.code === 'unauthorized') {
+                        console.error("Authentication error - check Notion connection");
+                    } else if (error.code === 'rate_limited') {
+                        console.error("Rate limited by Notion API");
+                    } else if (error.message && error.message.includes('network')) {
+                        console.error("Network error occurred");
+                    }
+                    
+                    return {
+                        context: {
+                            cursor: null,
+                        },
+                        options: [],
+                    };
+                }
+            },
+            reloadProps: true,
+        },
         steps: {
-			type: "object",
-			label: "Previous Step Data (Set by Default)",
-			description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
-		},
+            type: "object",
+            label: "Previous Step Data (Set by Default)",
+            description: `This property simply passes data from the previous step(s) in the workflow to this step. It should be pre-filled with a default value of **{{steps}}**, and you shouldn't need to change it.`,
+        },
         includedSections: {
             type: "string[]",
             label: "Included Sections",
@@ -136,7 +221,7 @@ Finally, select the sections you'd like to include in your note and configure th
                     label: "Action Items",
                     value: "action_items",
                 },
-                {   
+                {
                     label: "Follow-Up Questions",
                     value: "follow_up",
                 },
@@ -148,7 +233,7 @@ Finally, select the sections you'd like to include in your note and configure th
                     label: "References",
                     value: "references",
                 },
-                {   
+                {
                     label: "Arguments",
                     value: "arguments",
                 },
@@ -167,6 +252,30 @@ Finally, select the sections you'd like to include in your note and configure th
             ],
         },
     },
+    /*async additionalProps(previousPropDefs) {
+        let props = {};
+
+        props.thing = {
+            type: "boolean",
+            label: "Thing",
+            description: "This is a thing.",
+            default: false,
+            optional: true,
+            reloadProps: true,
+        },
+        
+        props.thing2 = {
+            type: "string",
+            label: "Thing 2",
+            description: "This is a thing 2.",
+            default: "Default value",
+            optional: true,
+            hidden: !this.thing,
+            disabled: !this.thing,
+        }
+
+        return props;
+    },*/
     async additionalProps(previousPropDefs) {
         let props = {};
 
@@ -267,7 +376,7 @@ Finally, select the sections you'd like to include in your note and configure th
                                     value: option.name,
                               }))
                             : [],
-                        default: "Voice Note",
+                        default: "AI Transcription",
                         optional: true,
                     },
                 }),
@@ -556,7 +665,7 @@ Finally, select the sections you'd like to include in your note and configure th
         if (this.debug === undefined) {
             this.debug = false;
         }
-        
+
 
         // Log all the settings, except for the steps object
         console.log(`Notion database settings:`)
@@ -582,7 +691,7 @@ Finally, select the sections you'd like to include in your note and configure th
         console.log(`Compress timestamps: ${this.compressTimestamps}`)
         console.log(`Toggle headers: ${this.toggleHeaders}`)
         console.log(`Give me more control: ${this.giveMeMoreControl}`)
-        
+
         if (this.giveMeMoreControl) {
             console.log(`Compression threshold: ${this.compressionThreshold}`)
             console.log(`Header type: ${this.headerType}`)
@@ -650,9 +759,9 @@ Finally, select the sections you'd like to include in your note and configure th
         }
 
         console.log(`Check 4: All selected properties are present in the database.`)
-        
+
         console.log(`All prerequisites for running this step have been met.`)
-        
+
         // Get the "Transcribe and Summarize" step's "$return_value" object
         const fileInfo = this.steps.Transcribe_Summarize.$return_value;
 
@@ -676,7 +785,7 @@ Finally, select the sections you'd like to include in your note and configure th
             } else if (this.noteTitleValue === "Both (File Name – Audio File Name)" || this.noteTitleValue === "AI Generated Title") {
                 // User tried to include AI generated title, but fileInfo doesn't have an ai_title
                 console.warn("AI Generated Title was selected, but the audio file does not have an AI-generated title. Using Audio File Name instead.");
-                
+
                 if (fileInfo.property_values.filename) {
                     notionData.noteTitle = fileInfo.property_values.filename;
                 } else {
@@ -734,10 +843,10 @@ Finally, select the sections you'd like to include in your note and configure th
         try {
             if (this.sectionOrder && typeof this.sectionOrder === 'object') {
                 console.log('User provided custom section order:', this.sectionOrder);
-                
+
                 // Create a new object that starts with the default order
                 const customOrder = { ...defaultCanonicalSectionOrder };
-                
+
                 // First, collect all the custom order numbers and validate user input
                 const customOrderNumbers = new Set();
                 Object.entries(this.sectionOrder).forEach(([key, value]) => {
@@ -769,23 +878,23 @@ Finally, select the sections you'd like to include in your note and configure th
                 conflicts.forEach((sections, order) => {
                     if (sections.length > 1) {
                         console.log(`Found conflict for order ${order} with sections: ${sections.join(', ')}`);
-                        
+
                         // Find which sections were user-specified
-                        const userSpecifiedSection = sections.find(section => 
+                        const userSpecifiedSection = sections.find(section =>
                             this.sectionOrder && this.sectionOrder.hasOwnProperty(section)
                         );
-                        
+
                         if (userSpecifiedSection) {
                             // If there's a user-specified section, move all other sections
                             const sectionsToMove = sections.filter(section => section !== userSpecifiedSection);
                             let nextOrder = order + 1;
-                            
+
                             sectionsToMove.forEach(section => {
                                 // Find the next available order number
                                 while (customOrderNumbers.has(nextOrder)) {
                                     nextOrder++;
                                 }
-                                
+
                                 console.log(`Moving section ${section} from ${order} to ${nextOrder}`);
                                 customOrder[section] = nextOrder;
                                 customOrderNumbers.add(nextOrder);
@@ -795,12 +904,12 @@ Finally, select the sections you'd like to include in your note and configure th
                             // If no user-specified section, keep the first one and move the rest
                             const [firstSection, ...sectionsToMove] = sections;
                             let nextOrder = order + 1;
-                            
+
                             sectionsToMove.forEach(section => {
                                 while (customOrderNumbers.has(nextOrder)) {
                                     nextOrder++;
                                 }
-                                
+
                                 console.log(`Moving section ${section} from ${order} to ${nextOrder}`);
                                 customOrder[section] = nextOrder;
                                 customOrderNumbers.add(nextOrder);
@@ -828,12 +937,12 @@ Finally, select the sections you'd like to include in your note and configure th
                 });
 
                 console.log('Processed section order:', customOrder);
-                
+
                 // Create array of [section, order] pairs and sort by order number
                 const orderedPairs = Object.entries(customOrder)
                     .map(([section, order]) => [section, order])
                     .sort((a, b) => a[1] - b[1]);
-                
+
                 // Extract just the section names in order
                 canonicalSectionOrder = orderedPairs.map(([section]) => section);
                 console.log('Using custom section order:', canonicalSectionOrder);
@@ -879,7 +988,7 @@ Finally, select the sections you'd like to include in your note and configure th
             } catch (error) {
                 console.error(`Unable to fetch workspace file upload limits. Audio file will not be uploaded to Notion.`)
             }
-            
+
             if (uploadSizeLimit && uploadSizeLimit > 0) {
                 const fileSize = parseInt(fileInfo.other_data.metadata.file_size);
                 if (fileSize > uploadSizeLimit) {
@@ -887,7 +996,7 @@ Finally, select the sections you'd like to include in your note and configure th
                     uploadId = `The audio file is too large to upload to Notion. The file size is ${fileSize} bytes, but the workspace upload limit is ${uploadSizeLimit} bytes.`
                 } else {
                     console.log(`File size ${fileSize} bytes is less than the workspace upload limit of ${uploadSizeLimit} bytes. Uploading file to Notion.`)
-                    
+
                     uploadId = await this.uploadFileToNotion({
                         path: fileInfo.other_data.metadata.path,
                         name: fileInfo.other_data.file_name,
@@ -941,11 +1050,11 @@ Finally, select the sections you'd like to include in your note and configure th
         // if this.compressTimestamps is true and timestamped_transcript is present, compress the timestamps
         if (this.compressTimestamps === true && notionData.page_content.timestamped_transcript) {
             const uncompressedBlockCount = notionData.page_content.timestamped_transcript.length;
-            
+
             // Only compress if threshold is not set, or if block count exceeds threshold
-            const shouldCompress = !this.compressionThreshold || 
-                                 this.compressionThreshold === 0 || 
-                                 uncompressedBlockCount > this.compressionThreshold;
+            const shouldCompress = !this.compressionThreshold ||
+                this.compressionThreshold === 0 ||
+                uncompressedBlockCount > this.compressionThreshold;
 
             if (shouldCompress) {
                 // Compress the timestamped transcript
@@ -970,11 +1079,11 @@ Finally, select the sections you'd like to include in your note and configure th
         if (this.compressTranscripts === true) {
             if (notionData.page_content.transcript) {
                 const uncompressedBlockCount = notionData.page_content.transcript.length;
-                
+
                 // Only compress if threshold is not set, or if block count exceeds threshold
-                const shouldCompress = !this.compressionThreshold || 
-                                     this.compressionThreshold === 0 || 
-                                     uncompressedBlockCount > this.compressionThreshold;
+                const shouldCompress = !this.compressionThreshold ||
+                    this.compressionThreshold === 0 ||
+                    uncompressedBlockCount > this.compressionThreshold;
 
                 if (shouldCompress) {
                     // Compress the transcript
@@ -991,11 +1100,11 @@ Finally, select the sections you'd like to include in your note and configure th
             }
             if (notionData.page_content.original_language_transcript) {
                 const uncompressedBlockCount = notionData.page_content.original_language_transcript.length;
-                
+
                 // Only compress if threshold is not set, or if block count exceeds threshold
-                const shouldCompress = !this.compressionThreshold || 
-                                     this.compressionThreshold === 0 || 
-                                     uncompressedBlockCount > this.compressionThreshold;
+                const shouldCompress = !this.compressionThreshold ||
+                    this.compressionThreshold === 0 ||
+                    uncompressedBlockCount > this.compressionThreshold;
 
                 if (shouldCompress) {
                     // Compress the original language transcript
@@ -1040,7 +1149,7 @@ Finally, select the sections you'd like to include in your note and configure th
                 // Create the header text by capitalizing the first letter of each word in the key and replacing underscores with spaces
                 headerText = key.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase());
             }
-            
+
             // Determine if the header should be a toggle
             const isToggle = this.toggleHeaders && this.toggleHeaders.includes(key);
 
@@ -1082,7 +1191,7 @@ Finally, select the sections you'd like to include in your note and configure th
         const additionalBlocksSize = JSON.stringify(page.additionalBlocks).length / 1024;
         console.log(`Size of page.additionalBlocks: ${additionalBlocksSize.toFixed(2)} KB`);
 
-        
+
         // Log the page object
         console.log(`Constructed page object:`)
         console.dir(page, { depth: null });
@@ -1101,7 +1210,7 @@ Finally, select the sections you'd like to include in your note and configure th
 
         // Set the block append call count if it exists
         if (response.appendedBlocks && response.appendedBlocks.apiCallCount) {
-            this.blockAppendCallCount = response.appendedBlocks.apiCallCount;  
+            this.blockAppendCallCount = response.appendedBlocks.apiCallCount;
         }
 
         // Total API calls made

@@ -876,15 +876,24 @@ Rules for key terms:
             try {
                 const date = new Date().toLocaleString();
                 const prompt = this.createPrompt(transcript, date, custom_prompt);
-                const systemMessage = `You process the transcript in the the prompt according to the user's instructions. IMPORTANT: Respond only with the requested content in the custom prompt before the transcript. Do not add any preamble, introduction, or suffix to your response. Do not explain your response or add any notes. Return ONLY the requested content, nothing else.
                 
+                // Updated system message with better JSON handling instructions
+                const systemMessage = `You process the transcript in the prompt according to the user's instructions. IMPORTANT: Respond only with the requested content in the custom prompt before the transcript. Do not add any preamble, introduction, or suffix to your response. Do not explain your response or add any notes. Return ONLY the requested content, nothing else.
+
 Respond with a valid JSON object that contains a single 'markdown' property, which contains the entire requested content as a Markdown string.
 
-Example: If the first part of these system instructions read "Generate a blog post draft from the transcript", your response would be:
+CRITICAL JSON FORMATTING RULES:
+- All quotes within the markdown content MUST be escaped with backslashes (\")
+- All newlines within the markdown content MUST be escaped as \\n
+- All backslashes within the markdown content MUST be escaped as \\\\
+- Keep the content concise and focused - avoid extremely long responses
+- If the content would be very long, summarize key points instead
+
+Example: If the custom prompt asks for a blog post draft, your response would be:
 {
-    "markdown": "## Blog Post Draft\n\nThis is a blog post draft generated from the transcript. It includes the main points, action items, and other relevant information from the transcript."
+    "markdown": "## Blog Post Draft\\n\\nThis is a blog post draft generated from the transcript. It includes the main points and other relevant information."
 }
-    
+
 ALLOWED MARKDOWN FORMATTING:
 - Headers (H1, H2, H3)
 - Paragraphs
@@ -893,7 +902,8 @@ ALLOWED MARKDOWN FORMATTING:
 - Blockquotes
 
 NO OTHER MARKDOWN FORMATTING IS ALLOWED.
-`;
+
+You are set to JSON mode. Only return valid JSON in the requested format.`;
                 
                 const response = await this.llmRequest({
                     service: service,
@@ -906,8 +916,25 @@ NO OTHER MARKDOWN FORMATTING IS ALLOWED.
                     log_failure: (attempt, error) => log_failure(attempt, error, 0)
                 });
 
+                // Check if this is an error response from llmRequest
+                if (response.id && response.id.startsWith('error-')) {
+                    console.warn(`LLM request failed for custom prompt. Error response received.`);
+                    return "There was a problem generating the section from your custom prompt. The LLM service encountered repeated errors. See the Logs section of this Pipedream workflow run for more detail. Workflow is continuing in order to ensure you get the transcript and other requested sections.";
+                }
+
                 const content = this.repairJSON(response.content);
-                return content.markdown;
+                
+                // Check if the content has the expected structure
+                if (content && content.markdown) {
+                    return content.markdown;
+                } else if (content && content.title === "Error in processing") {
+                    // This is an error response that was parsed as JSON
+                    console.warn(`Error response detected in custom prompt: ${content.summary}`);
+                    return "There was a problem generating the section from your custom prompt. See the Logs section of this Pipedream workflow run for more detail. Workflow is continuing in order to ensure you get the transcript and other requested sections.";
+                } else {
+                    console.warn("Response does not contain expected 'markdown' property.");
+                    return "The custom prompt response was not in the expected format. Workflow is continuing in order to ensure you get the transcript and other requested sections.";
+                }
             } catch (error) {
                 console.warn(`Error sending transcript with custom prompt to ${service}: ${error.message}. Returning error string.`);
                 return "There was a problem generating the section from your custom prompt. See the Logs section of this Pipedream workflow run for more detail. Workflow is continuing in order to ensure you get the transcript and other requested sections."
