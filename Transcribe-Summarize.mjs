@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.65",
+    version: "0.1.67",
     type: "action",
     props: {
         instructions: {
@@ -161,7 +161,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 },
                 google_gemini: {
                     name: "Google Gemini",
-                    recommended: "gemini-1.5-flash",
+                    recommended: "gemini-2.0-flash",
                     models: ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"],
                     prop: "google_gemini",
                     app: {
@@ -1261,6 +1261,25 @@ This step works seamlessly with the **Send to Notion** step you likely see below
             );
 
             this.logMemoryUsage('After splitting transcript');
+
+            console.log(`Setting the default language for the workflow...`);
+
+            if (this.transcription_language && this.transcription_language !== "") {
+                this.workflow_language = this.transcription_language;
+            } else {
+                const detectedLanguage = await this.detectLanguage(
+                    this.ai_service,
+                    this.chat_model,
+                    fileInfo.metadata.paragraphs.transcript[0]
+                );
+
+                if (detectedLanguage.error) {
+                    console.error(`Language detection failed: ${detectedLanguage.error_message}. Will use the default language.`);
+                } else {
+                    console.log(`Detected language of the transcript is ${detectedLanguage.label} (ISO 639-1 code: ${detectedLanguage.value}).`);
+                    this.workflow_language = detectedLanguage.value;
+                }
+            }
 
             if (this.summary_options === null || this.summary_options.length === 0) {
                 console.log("No summary options selected. Using the first chunk as the title.");

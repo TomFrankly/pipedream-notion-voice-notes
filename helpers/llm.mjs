@@ -17,7 +17,6 @@ import { jsonrepair } from "jsonrepair";
 export default {
     methods: {
         ...prompts.methods,
-
         async llmRequest({
             service,
             model,
