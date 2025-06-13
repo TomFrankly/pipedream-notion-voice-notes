@@ -3,11 +3,12 @@ import Groq from "groq-sdk"; // Groq SDK
 import { createClient } from "@deepgram/sdk"; // Deepgram SDK
 import { webvtt } from "@deepgram/captions"; // Deepgram WebVTT formatter
 import { ElevenLabsClient } from "elevenlabs";
-import {
+/*import {
     GoogleGenAI,
     createUserContent,
     createPartFromUri,
 } from "@google/genai";
+*/
 import { AssemblyAI } from "assemblyai"; // AssemblyAI SDK
 import fs from "fs";
 import { join } from "path";
@@ -560,6 +561,7 @@ export default {
             }
         },
 
+        /*
         async transcribeGoogle({ file, outputDir, model = "gemini-2.0-flash", apiKey, readStream }) {
             const ai = new GoogleGenAI({ apiKey });
             const filePath = join(outputDir, file);
@@ -597,6 +599,7 @@ export default {
                 throw new Error(`Google Gemini transcription error: ${error.message}`);
             }
         },
+        */
 
         async transcribeAssemblyAI({ model = "best", apiKey, readStream }) {
             try {

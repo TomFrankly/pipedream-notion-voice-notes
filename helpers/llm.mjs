@@ -196,7 +196,7 @@ export default {
                 throw new Error(`Anthropic request error: ${error.message}`);
             }
         },
-
+        /*
         async requestGoogle({ model, prompt, systemMessage, temperature }) {
             const genAI = new GoogleGenAI({ apiKey: this.google_gemini.$auth.api_key });
             
@@ -215,6 +215,7 @@ export default {
                 throw new Error(`Google Gemini request error: ${error.message}`);
             }
         },
+        */
 
         async requestCerebras({ model, prompt, systemMessage, temperature }) {
             const cerebras = new Cerebras({ apiKey: this.cerebras.$auth.api_key });
