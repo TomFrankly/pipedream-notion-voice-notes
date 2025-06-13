@@ -6,10 +6,10 @@ import ffmpegHelper from "./helpers/ffmpeg.mjs";
 import llm from "./helpers/llm.mjs";
 
 export default {
-    name: "Transcribe and Summarize",
+    name: "Transcribe and Summarize - Google Bugfix 2025-06-13",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
-    key: "transcribe-summarize",
-    version: "0.1.68",
+    key: "transcribe-summarize-google-bugfix",
+    version: "0.0.1",
     type: "action",
     props: {
         instructions: {
@@ -731,12 +731,6 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         console.log("=== STARTING RUN ===");
 
         console.log("Initializing required advanced properties...");
-
-        /* === TEMP: FAIL ON GOOGLE GEMINI === */
-        if (this.ai_service === "google_gemini" || this.transcription_service === "google_gemini") {
-            throw new Error("Google Gemini's JS package is currently broken. Google Gemini will not be available in this workflow until the next update. Please choose another provider. More info here: https://github.com/googleapis/js-genai/issues/684");
-        }
-        /* === END TEMP === */
 
         if (this.keep_file === undefined) this.keep_file = true;
         if (this.chunk_size === undefined) this.chunk_size = 10;
