@@ -394,7 +394,7 @@ export default {
             }
         },
 
-        async transcribeGroq({ model = "distil-whisper-large-v3-en", apiKey, readStream }) {
+        async transcribeGroq({ model = "whisper-large-v3-turbo", apiKey, readStream }) {
             const groq = new Groq({ apiKey });
             
             try {

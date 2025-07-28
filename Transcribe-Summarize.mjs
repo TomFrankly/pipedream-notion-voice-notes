@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.69",
+    version: "0.1.70",
     type: "action",
     props: {
         instructions: {
@@ -149,8 +149,8 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 },
                 groqcloud: {
                     name: "Groq",
-                    recommended: "distil-whisper-large-v3-en",
-                    models: ["whisper-large-v3-turbo", "distil-whisper-large-v3-en", "whisper-large-v3"],
+                    recommended: "whisper-large-v3-turbo",
+                    models: ["whisper-large-v3-turbo", "whisper-large-v3"],
                     prop: "groqcloud",
                     app: {
                         type: "app",
@@ -738,6 +738,11 @@ This step works seamlessly with the **Send to Notion** step you likely see below
         if (this.enable_downsampling === undefined) this.enable_downsampling = false;
         if (this.summary_density === undefined) this.summary_density = 20;
 
+        // Groq → distil-whisper-large-v3-en is deprecated. If user has it selected, switch to whisper-large-v3-turbo
+        if (this.transcription_model === "distil-whisper-large-v3-en") {
+            this.transcription_model = "whisper-large-v3-turbo";
+        }
+
         console.log("Logging Settings...");
         const logSettings = {
             transcription_service: this.transcription_service,
@@ -777,7 +782,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     models: ["nova-3", "nova-2", "nova-general"]
                 },
                 groqcloud: {
-                    models: ["whisper-large-v3-turbo", "distil-whisper-large-v3-en", "whisper-large-v3"]
+                    models: ["whisper-large-v3-turbo", "whisper-large-v3"]
                 },
                 google_gemini: {
                     models: ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]
