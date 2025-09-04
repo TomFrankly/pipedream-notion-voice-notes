@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.70",
+    version: "0.1.71",
     type: "action",
     props: {
         instructions: {
@@ -236,7 +236,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                 groqcloud: {
                     name: "Groq",
                     recommended: "meta-llama/llama-4-scout-17b-16e-instruct",
-                    models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct"],
+                    models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b", "openai/gpt-oss-20b"],
                     prop: "groqcloud",
                     app: {
                         type: "app",
@@ -805,7 +805,7 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     models: ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"]
                 },
                 groqcloud: {
-                    models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct"]
+                    models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
                 },
                 cerebras: {
                     models: ["llama-4-scout-17b-16e-instruct", "llama3.1-8b", "llama-3.3-70b"]

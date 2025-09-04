@@ -1,4 +1,4 @@
-import { Client } from "@notionhq/client"; // Notion SDK
+import { Client } from "@notionhq/client@4.0.2"; // Notion SDK
 import { createPage, createNotionBuilder } from "notion-helper"; // Notion helper
 import {markdownToBlocks} from '@tryfabric/martian'; // Markdown to Notion blocks
 import uploadFile from "./helpers/upload-file.mjs";
@@ -10,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.74",
+    version: "0.0.75",
     props: {
         instructions: {
             type: "alert",
