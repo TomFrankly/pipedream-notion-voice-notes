@@ -9,7 +9,7 @@ export default {
     name: "Transcribe and Summarize",
     description: "A robust workflow for transcribing and optionally summarizing audio files",
     key: "transcribe-summarize",
-    version: "0.1.71",
+    version: "0.1.74",
     type: "action",
     props: {
         instructions: {
@@ -961,8 +961,15 @@ This step works seamlessly with the **Send to Notion** step you likely see below
                     console.log("Trigger step has a webUrl. Using that link.");
                     fileInfo.link = this.steps.trigger.event.webUrl;
                 } else if (this.steps.trigger.event.link) {
-                    console.log("Trigger step has a link variable. Using that link.");
-                    fileInfo.link = this.steps.trigger.event.link;
+                    console.log("Trigger step has a link variable. Trigger is likely Dropbox.")
+
+                    if (this.steps.trigger.event.path_lower) {
+                        console.log("Trigger step has a path_lower variable. Using that to construct the link.");
+                        fileInfo.link = `https://www.dropbox.com/home${this.steps.trigger.event.path_lower}`;
+                    } else {
+                        console.log("Trigger step does not have a path_lower variable. Using the link variable.");
+                        fileInfo.link = this.steps.trigger.event.link;
+                    }
                 } else {
                     console.log("No file link provided. Using the default behavior.");
                     fileInfo.link = this.steps.trigger.event.webViewLink;
@@ -1007,7 +1014,14 @@ This step works seamlessly with the **Send to Notion** step you likely see below
 			fileInfo.metadata.path = this.steps.download_file_to_tmp.$return_value.tmpPath
             fileInfo.file_name = this.steps.download_file_to_tmp.$return_value.name
             fileInfo.metadata.mime = this.steps.download_file_to_tmp.$return_value.name.match(/\.\w+$/)[0];
-            fileInfo.link = this.steps.trigger.event.link;
+
+            if (this.steps.trigger.event.path_lower) {
+                console.log("Trigger step has a path_lower variable. Using that to construct the link.");
+                fileInfo.link = encodeURI(`https://www.dropbox.com/home${this.steps.trigger.event.path_lower}`);
+            } else {
+                console.log("Trigger step does not have a path_lower variable. Using the link variable.");
+                fileInfo.link = this.steps.trigger.event.link;
+            }
 
             if (this.supportedMimes.includes(fileInfo.metadata.mime) === false) {
                 console.warn("Unsupported file type. File will be downsampled and converted to m4a before being processed.");

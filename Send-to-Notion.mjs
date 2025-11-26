@@ -1,5 +1,5 @@
 import { Client } from "@notionhq/client@4.0.2"; // Notion SDK
-import { createPage, createNotionBuilder } from "notion-helper"; // Notion helper
+import { createPage, createNotionBuilder, buildRichTextObj, mentionDate } from "notion-helper"; // Notion helper
 import {markdownToBlocks} from '@tryfabric/martian'; // Markdown to Notion blocks
 import uploadFile from "./helpers/upload-file.mjs";
 
@@ -10,7 +10,7 @@ export default {
     key: "send-to-notion",
     description: "A versatile action for sending data to Notion. Primarily used for sending the results of the Transcribe and Summarize action to Notion.",
     type: "action",
-    version: "0.0.75",
+    version: "0.0.78",
     props: {
         instructions: {
             type: "alert",
@@ -353,6 +353,12 @@ Finally, select the sections you'd like to include in your note and configure th
                         optional: true,
                     }
                 }),
+                remoteFileCallout: {
+                    type: "boolean",
+                    label: "Remote File Callout",
+                    description: "If true, this step will create a Callout block at the top of the page containing a link to the audio file at your chosen close storage service.",
+                    default: false
+                },
                 toggleHeaders: {
                     type: "string[]",
                     label: "Use Toggle Headers",
@@ -541,6 +547,10 @@ Finally, select the sections you'd like to include in your note and configure th
             }
         }
 
+        if (this.remoteFileCallout === undefined) {
+            this.remoteFileCallout = false;
+        }
+
         if (this.compressTranscripts === undefined) {
             this.compressTranscripts = false;
         }
@@ -577,6 +587,7 @@ Finally, select the sections you'd like to include in your note and configure th
             console.log(`Uploaded file property: ${this.noteFileProperty}`)
             console.log(`Create audio block: ${this.createAudioBlock}`)
         }
+        console.log(`Remote file callout: ${this.remoteFileCallout}`)
         console.log(`Included sections: ${this.includedSections}`)
         console.log(`Compress transcripts: ${this.compressTranscripts}`)
         console.log(`Compress timestamps: ${this.compressTimestamps}`)
@@ -1028,6 +1039,22 @@ Finally, select the sections you'd like to include in your note and configure th
                     })
                 }
             }
+        }
+
+        // If this.remoteFileCallout is true, create a callout block at the top of the page containing a link to the audio file at your chosen close storage service
+        if (this.remoteFileCallout === true && fileInfo.property_values.file_link) {
+            page = page.callout({
+                rich_text: [
+                    `This AI transcription was created on `,
+                    mentionDate(new Date().toISOString()),
+                    ". ",
+                    buildRichTextObj("Listen to the original recording here.", {
+                        url: fileInfo.property_values.file_link
+                    }),
+                ].flat(),
+                color: "default",
+                icon: "🤖"
+            })
         }
 
         // For each key in notionData.page_content, add it to the page content
