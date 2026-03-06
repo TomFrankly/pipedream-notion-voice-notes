@@ -45,9 +45,19 @@ export default {
 				language = lang.LANGUAGES.find((l) => l.value === this.workflow_language);
 			}
 
+			// Guard against unmapped language codes (e.g. "unknown") from detection.
+			const hasLanguagePreference =
+				(summary_language && summary_language !== "") ||
+				(this.workflow_language && this.workflow_language !== "");
+			if (hasLanguagePreference && !language) {
+				console.warn(
+					`Could not map summary language code to a supported language. summary_language="${summary_language}", workflow_language="${this.workflow_language}". Falling back to transcript language.`
+				);
+			}
+
 			let languageSetter = `Write all requested JSON keys in English, exactly as instructed in these system instructions.`;
 
-			if ((summary_language && summary_language !== "") || (this.workflow_language && this.workflow_language !== "")) {
+			if (hasLanguagePreference && language) {
 				languageSetter += ` Write all summary values in ${language.label} (ISO 639-1 code: "${language.value}"). 
 					
 				Pay extra attention to this instruction: If the transcript's language is different than ${language.label}, you should still translate summary values into ${language.label}.`;
@@ -57,7 +67,7 @@ export default {
 
 			let languagePrefix;
 
-			if ((summary_language && summary_language !== "") || (this.workflow_language && this.workflow_language !== "")) {
+			if (hasLanguagePreference && language) {
 				languagePrefix = ` You will write your summary in ${language.label} (ISO 639-1 code: "${language.value}").`;
 			}
 

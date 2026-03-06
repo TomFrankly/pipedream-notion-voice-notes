@@ -1,18 +1,18 @@
-import OpenAI from "openai"; // OpenAI SDK
-import Groq from "groq-sdk"; // Groq SDK
-import { createClient } from "@deepgram/sdk"; // Deepgram SDK
-import { webvtt } from "@deepgram/captions"; // Deepgram WebVTT formatter
-import { ElevenLabsClient } from "elevenlabs";
+import OpenAI from "openai@~6.26.0"; // OpenAI SDK
+import Groq from "groq-sdk@~0.37.0"; // Groq SDK
+import { DeepgramClient } from "@deepgram/sdk@~5.0.0"; // Deepgram SDK
+import { webvtt } from "@deepgram/captions@~1.2.0"; // Deepgram WebVTT formatter
+import { ElevenLabsClient } from "elevenlabs@~1.59.0";
 import {
     GoogleGenAI,
     createUserContent,
     createPartFromUri,
-} from "@google/genai";
-import { AssemblyAI } from "assemblyai"; // AssemblyAI SDK
+} from "@google/genai@~1.44.0";
+import { AssemblyAI } from "assemblyai@~4.26.1"; // AssemblyAI SDK
 import fs from "fs";
 import { join } from "path";
-import retry from "async-retry";
-import Bottleneck from "bottleneck";
+import retry from "async-retry@~1.3.3";
+import Bottleneck from "bottleneck@~2.19.5";
 
 export default {
     methods: {
@@ -463,17 +463,11 @@ export default {
                     transcriptionParams.language = this.whisper_language;
                 }
 
-                const deepgram = createClient(apiKey);
-                const { result: sdkResult, error } = await deepgram.listen.prerecorded.transcribeFile(
+                const deepgram = new DeepgramClient({ apiKey });
+                result = await deepgram.listen.v1.media.transcribeFile(
                     readStream,
                     transcriptionParams
                 );
-
-                if (error) {
-                    console.error("Deepgram error response:", error);
-                    throw new Error(`Deepgram error: ${error.message}`);
-                }
-                result = sdkResult;
  
                 if (result.error) {
                     console.error("Deepgram error response:", result.error);

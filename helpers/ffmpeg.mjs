@@ -1,6 +1,6 @@
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg"; // ffmpeg
-import ffprobeInstaller from "@ffprobe-installer/ffprobe";
-import { parseFile } from "music-metadata"; // Audio duration parser
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg@~1.1.0"; // ffmpeg
+import ffprobeInstaller from "@ffprobe-installer/ffprobe@~2.1.2";
+import { parseFile } from "music-metadata@~11.12.1"; // Audio duration parser
 
 // Node.js utils
 import { promisify } from "util"; // Promisify

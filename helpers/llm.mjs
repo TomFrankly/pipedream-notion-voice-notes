@@ -1,18 +1,18 @@
 // Import LLM SDKs
-import OpenAI from "openai"; // OpenAI SDK
-import Groq from "groq-sdk"; // Groq SDK
-import { Anthropic } from '@anthropic-ai/sdk';
-import { GoogleGenAI } from "@google/genai";
-import Cerebras from '@cerebras/cerebras_cloud_sdk'; // Cerebras SDK
+import OpenAI from "openai@~6.26.0"; // OpenAI SDK
+import Groq from "groq-sdk@~0.37.0"; // Groq SDK
+import { Anthropic } from '@anthropic-ai/sdk@~0.78.0';
+import { GoogleGenAI } from "@google/genai@~1.44.0";
+import Cerebras from '@cerebras/cerebras_cloud_sdk@~1.64.1'; // Cerebras SDK
 
 // Import local files
 import prompts from "./prompts.mjs";
 import lang from "./languages.mjs";
 
 // Import utilities
-import retry from "async-retry"; // Retry handler
-import Bottleneck from "bottleneck";
-import { jsonrepair } from "jsonrepair";
+import retry from "async-retry@~1.3.3"; // Retry handler
+import Bottleneck from "bottleneck@~2.19.5";
+import { jsonrepair } from "jsonrepair@~3.13.2";
 
 export default {
     methods: {

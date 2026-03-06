@@ -2,7 +2,7 @@
 import stream from "stream"; // Stream handling
 import { promisify } from "util"; // Promisify
 import fs from "fs"; // File system
-import got from "got"; // HTTP requests
+import got from "got@~14.6.6"; // HTTP requests
 import { exec } from "child_process"; // Shell commands
 
 const execAsync = promisify(exec);
