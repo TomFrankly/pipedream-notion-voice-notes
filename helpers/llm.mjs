@@ -1039,7 +1039,7 @@ Rules:
             console.log(`Filtering Related Topics, if any exist:`);
             let filtered_related_topics = chatResponse.related_topics
                 .flat()
-                .filter((item) => item !== undefined && item !== null && item !== "");
+                .filter((item) => typeof item === "string" && item.trim() !== "");
 
             let filtered_related_set;
 
